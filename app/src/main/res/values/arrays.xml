@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!-- 설정 탭 리스트들 -->
+
+<resources>
+    <!-- 자동 절전 시간 리스트 -->
+    <string-array name="rec_dark_mode_time_entries">
+        <item>3분</item>
+        <item>5분</item>
+        <item>10분</item>
+    </string-array>
+
+    <string-array name="rec_dark_mode_time_values">
+        <item>3</item>
+        <item>5</item>
+        <item>10</item>
+    </string-array>
+
+    <!-- 해상도 설정 리스트 -->
+    <string-array name="resolution_entries">
+        <item>640 x 480 (SD)</item>
+        <item>1280 x 720 (HD)</item>
+        <item>1920 x 1080 (FHD)</item>
+    </string-array>
+
+    <string-array name="resolution_values">
+        <item>480</item>
+        <item>720</item>
+        <item>1080</item>
+    </string-array>
+
+</resources>

@@ -1,0 +1,115 @@
+<!-- 설정 탭 -->
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 설정, 프로필도 같이 스크롤 되도록 추가-->
+    <com.example.capstone.line_delete
+        app:layout="@layout/setting_top"
+        app:selectable="false" />
+
+
+    <PreferenceCategory app:title="녹화 설정"
+        app:iconSpaceReserved="false">
+
+        <SwitchPreferenceCompat
+            app:key="sound"
+            app:title="소리 녹음"
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+
+        <ListPreference
+            android:title="해상도"
+            android:key="resolution"
+            android:defaultValue="720"
+            android:entries="@array/resolution_entries"
+            android:entryValues="@array/resolution_values"
+            android:negativeButtonText="@null"
+            android:positiveButtonText="@null"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true"/>
+
+
+
+        <CheckBoxPreference
+            app:key="rec_dark_mode"
+            app:title="녹화 중 절전모드"
+            app:iconSpaceReserved="false"/>
+        <ListPreference
+            android:title="절전모드 시간설정"
+            android:key="rec_dark_mode_time"
+            android:defaultValue="3"
+            android:entries="@array/rec_dark_mode_time_entries"
+            android:entryValues="@array/rec_dark_mode_time_values"
+            android:negativeButtonText="@null"
+            android:positiveButtonText="@null"
+            android:dependency="rec_dark_mode"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true"/>
+
+        <SwitchPreferenceCompat
+            app:key="show_minimap_on_map"
+            app:title="지도 표시 시 블랙박스 화면 표시"
+            app:summary="지도 화면 우측 상단에 실시간 카메라 녹화 화면을 함께 표시합니다."
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="저장 설정"
+        app:iconSpaceReserved="false">
+
+        <Preference
+            app:key="store_path"
+            app:title="저장 경로"
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+        <Preference
+            app:key="store_max"
+            app:title="한계 저장 용량"
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="앱 정보"
+        app:iconSpaceReserved="false">
+
+        <Preference
+            app:key="help"
+            app:title="도움말"
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+        <Preference
+            app:key="service_rule"
+            app:title="서비스 이용약관"
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+        <Preference
+            app:key="qna"
+            app:title="문의하기"
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+        <!-- 도움말에 노션 링크 넣는 경우도 있음. 만약 이동링크 넣을 경우 이와 같이 하면됨.
+        <Preference
+            app:key="help"
+            app:title="도움말"
+            app:iconSpaceReserved="false">
+            <intent
+                android:action="android.intent.action.VIEW"
+                android:data="http://www.naver.com" />
+        </Preference>
+
+-->
+    </PreferenceCategory>
+
+
+
+
+
+</PreferenceScreen>
