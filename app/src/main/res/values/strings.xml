@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">capstone</string>
+    <string name="title_activity_fullscreen">FullscreenActivity</string>
+    <string name="dummy_button">Dummy Button</string>
+    <string name="dummy_content">hi</string>
+
+    <string name="speed">0.0</string>
+    <string name="full_video">전체 영상</string>
+    <string name="event_video">사고 영상</string>
+    <string name="date">2000/01/01</string>
+    <string name="time">00시 00분</string>
+    <string name="location">광주광역시 북구</string>
+    <string name="video_time">0시간 00분</string>
+    <string name="video_size">0MB</string>
+    <string name="video_none">저장된 영상이 없습니다.</string>
+
+
+</resources>
