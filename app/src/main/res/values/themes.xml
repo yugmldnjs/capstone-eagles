@@ -1,0 +1,40 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Base.Theme.Capstone" parent="Theme.Material3.DayNight.NoActionBar">
+    </style>
+
+    <style name="Theme.Capstone" parent="Base.Theme.Capstone">
+    </style>
+
+    <style name="Theme.Capstone.EdgeToEdge" parent="Theme.Capstone">
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+    </style>
+
+
+
+    <!-- 이거 3개는 앱 처음 시작 스플래시 창(로딩 창) 설정을 위한 것-->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/intro_background</item>
+
+        <item name="windowSplashScreenAnimatedIcon">@drawable/main_icon</item>
+
+        <item name="postSplashScreenTheme">@style/Theme.Capstone</item>
+    </style>
+
+
+    <!-- 이 밑 3개 sytle은 설정창의 "설정" 글자 크기 설정을 위한 것 -->
+    <style name="Theme.Capstone.Settings" parent="PreferenceThemeOverlay">
+        <item name="preferenceCategoryStyle">@style/MyPreferenceCategory</item>
+    </style>
+
+    <style name="MyPreferenceCategory" parent="@style/Preference.Category.Material">
+        <item name="android:titleTextAppearance">@style/MyPreferenceCategoryTitle</item>
+    </style>
+
+    <style name="MyPreferenceCategoryTitle">
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+
+    </style>
+
+</resources>
