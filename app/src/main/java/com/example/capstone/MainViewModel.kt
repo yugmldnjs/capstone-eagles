@@ -19,49 +19,17 @@ class MainViewModel : ViewModel() {
         }
     }
 
-
-
-    // cameraX
-    private val _takePhotoEvent = MutableLiveData<Boolean>()
-    val takePhotoEvent: LiveData<Boolean> get() = _takePhotoEvent
-
-    fun requestTakePhoto() {
-        _takePhotoEvent.value = true
-    }
-
-    fun doneTakingPhoto() {
-        _takePhotoEvent.value = false
-    }
-
-
-    // --- 플래시 상태 ---
-    private val _isFlashOn = MutableLiveData<Boolean>(false) // 초기값은 false
-    val isFlashOn: LiveData<Boolean> get() = _isFlashOn
-
     // --- 녹화 상태 ---
-    // isRecording: 현재 녹화 중인지 상태를 저장 (UI 업데이트용)
+    // 역할 1: 현재 녹화 상태를 저장하고 UI가 관찰하도록 함 (예: 버튼 아이콘 변경용)
     private val _isRecording = MutableLiveData<Boolean>(false)
     val isRecording: LiveData<Boolean> get() = _isRecording
 
-    // recordVideoEvent: 녹화 시작/중단 이벤트를 Fragment에 전달
-    private val _recordVideoEvent = MutableLiveData<Boolean>()
-    val recordVideoEvent: LiveData<Boolean> get() = _recordVideoEvent
-
-    // Activity에서 이 함수를 호출해 녹화/중단 신호를 보냄
-    fun requestToggleRecording() {
-        _recordVideoEvent.value = true // 이벤트 발생
-        _isRecording.value = !(_isRecording.value ?: false) // 녹화 상태 토글
+    // 서비스로부터 녹화 상태를 전달받아 LiveData를 업데이트하는 함수
+    fun setIsRecording(isRec: Boolean) {
+        if (_isRecording.value != isRec) {
+            _isRecording.value = isRec
+        }
     }
-
-    // Fragment에서 이벤트 처리가 끝나면 호출
-    fun doneRecordingVideo() {
-        _recordVideoEvent.value = false
-    }
-
-    fun toggleFlash() {
-        _isFlashOn.value = !(_isFlashOn.value ?: false)
-    }
-
-
-
+    // requestToggleRecording, recordVideoEvent 등은 서비스 방식으로 바뀌었으므로 삭제
+    // 플래시 코드도 이동
 }
