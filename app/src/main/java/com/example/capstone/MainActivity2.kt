@@ -54,7 +54,7 @@ class MainActivity2 : AppCompatActivity() {
             if (viewModel.isMapVisible.value == true) {
                 showCameraView()
             } else {
-                viewModel.requestTakePhoto()
+                viewModel.requestToggleRecording()
             }
         }
         binding.mapBtn.setOnClickListener {
@@ -75,6 +75,16 @@ class MainActivity2 : AppCompatActivity() {
         }
         viewModel.isMapVisible.observe(this) { isVisible ->
             syncUiToState()
+        }
+
+        viewModel.isRecording.observe(this) { isRecording ->
+            if (isRecording) {
+                // 녹화 중일 때 아이콘 (예: 중지 아이콘)
+                binding.camera.setImageResource(R.drawable.camera_on)
+            } else {
+                // 녹화 중이 아닐 때 아이콘 (예: 녹화 아이콘)
+                binding.camera.setImageResource(R.drawable.camera)
+            }
         }
     }
 

@@ -6,7 +6,7 @@ plugins {
 android {
     namespace = "com.example.capstone"
     compileSdk = 36
-viewBinding.isEnabled=true  // 뷰바인딩
+    viewBinding.isEnabled=true  // 뷰바인딩
     defaultConfig {
         applicationId = "com.example.capstone"
         minSdk = 24

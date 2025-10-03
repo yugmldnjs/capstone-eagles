@@ -1,9 +1,13 @@
 package com.example.capstone
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -16,6 +20,13 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.example.capstone.databinding.FragmentCameraBinding
@@ -33,7 +44,8 @@ class CameraFragment : Fragment() {
     private var _binding: FragmentCameraBinding? = null
     private val binding get() = _binding!!
 
-    private var imageCapture: ImageCapture? = null
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var recording: Recording? = null
     private var camera: Camera? = null  // 플래시 제어하려면 Camera 객체에 접근해야함.
     private lateinit var outputDirectory: File
     private lateinit var cameraExecutor: ExecutorService
@@ -79,10 +91,10 @@ class CameraFragment : Fragment() {
         } else {
             activityResultLauncher.launch(REQUIRED_PERMISSIONS)
         }
-        // ViewModel의 takePhotoEvent observe 우선 미리보기를 위해 사진 촬영으로 넣어놓음.
-        viewModel.takePhotoEvent.observe(viewLifecycleOwner) { takePhoto ->
-            if (takePhoto == true) { // 사진 촬영 요청이 오면
-                takePhoto() // 사진 촬영 실행
+        // ViewModel의 녹화 이벤트를 관찰(observe)
+        viewModel.recordVideoEvent.observe(viewLifecycleOwner) { recordVideo ->
+            if (recordVideo == true) { // 녹화/중단 요청이 오면
+                toggleRecording() // 녹화 토글 함수 실행
                 viewModel.doneTakingPhoto() // 이벤트 처리 완료 알림
             }
         }
@@ -112,7 +124,10 @@ class CameraFragment : Fragment() {
                 it.setSurfaceProvider(binding.viewFinder.surfaceProvider)
             }
 
-            imageCapture = ImageCapture.Builder().build()
+            val recorder = Recorder.Builder()
+                .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
+                .build()
+            videoCapture = VideoCapture.withOutput(recorder)
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             // mini_camera 뷰를 먼저 찾아서 상태 확인
@@ -127,12 +142,12 @@ class CameraFragment : Fragment() {
                     val miniPreview = Preview.Builder().build()
                     miniPreview.setSurfaceProvider(miniCameraView.surfaceProvider)
                     camera = cameraProvider.bindToLifecycle(
-                        viewLifecycleOwner, cameraSelector, preview, miniPreview, imageCapture
+                        viewLifecycleOwner, cameraSelector, preview, miniPreview, videoCapture
                     )
                 } else {
                     // 보이지 않을 때는 miniPreview 없이 메인 프리뷰
                     camera = cameraProvider.bindToLifecycle(
-                        viewLifecycleOwner, cameraSelector, preview, imageCapture
+                        viewLifecycleOwner, cameraSelector, preview, videoCapture
                     )
                 }
             } catch (exc: Exception) {
@@ -141,34 +156,58 @@ class CameraFragment : Fragment() {
         }, ContextCompat.getMainExecutor(requireContext()))
     }
 
-    private fun takePhoto() {
-        val imageCapture = imageCapture ?: return
+    @SuppressLint("MissingPermission")
+    private fun toggleRecording() {
+        val videoCapture = this.videoCapture ?: return
 
-        // 사진을 저장할 파일 생성
-        val photoFile = File(
-            outputDirectory,
-            SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA).format(System.currentTimeMillis()) + ".jpg"
-        )
+        // 현재 녹화 중인 경우 중단
+        if (recording != null) {
+            recording?.stop()
+            recording = null
+            return
+        }
 
-        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+        // 녹화 시작
+        val name = "Blackbox-${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA).format(System.currentTimeMillis())}.mp4"
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MyBlackbox")
+            }
+        }
 
-        imageCapture.takePicture(
-            outputOptions,
-            cameraExecutor, // 사진 저장은 백그라운드 스레드
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onError(exc: ImageCaptureException) {
-                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+        val mediaStoreOutputOptions = MediaStoreOutputOptions
+            .Builder(requireActivity().contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            .setContentValues(contentValues)
+            .build()
+
+        val audioPermission = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO)
+
+        recording = videoCapture.output
+            .prepareRecording(requireContext(), mediaStoreOutputOptions)
+            .apply {
+                if (audioPermission == PackageManager.PERMISSION_GRANTED) {
+                    withAudioEnabled()
                 }
-
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    val savedUri = Uri.fromFile(photoFile)
-                    // val msg = "사진 캡처 성공: $savedUri"
-                    // UI 업데이트는 메인 스레드에서
-                    activity?.runOnUiThread {
-
+            }
+            .start(ContextCompat.getMainExecutor(requireContext())) { recordEvent ->
+                when (recordEvent) {
+                    is VideoRecordEvent.Start -> {
+                        Toast.makeText(requireContext(), "녹화 시작", Toast.LENGTH_SHORT).show()
+                    }
+                    is VideoRecordEvent.Finalize -> {
+                        if (!recordEvent.hasError()) {
+                            val msg = "영상 저장 완료: ${recordEvent.outputResults.outputUri}"
+                            Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+                        } else {
+                            recording?.close()
+                            recording = null
+                            Log.e(TAG, "영상 저장 실패: ${recordEvent.error}")
+                        }
                     }
                 }
-            })
+            }
     }
 
     private fun getOutputDirectory(): File {
@@ -196,6 +235,14 @@ class CameraFragment : Fragment() {
     companion object {
         private const val TAG = "CameraFragment"
         private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
-        private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
+        private val REQUIRED_PERMISSIONS =
+            mutableListOf (
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO // 오디오 권한 추가
+            ).apply {
+                if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+                    add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                }
+            }.toTypedArray()
     }
 }
