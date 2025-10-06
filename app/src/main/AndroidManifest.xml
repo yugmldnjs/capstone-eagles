@@ -7,12 +7,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.INTERNET" />
 
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
+
 
     <uses-feature
         android:name="android.hardware.camera"
@@ -55,12 +51,6 @@
             android:exported="false"
             android:theme="@style/Theme.Capstone.EdgeToEdge"
             />
-
-        <service
-            android:name=".RecordingService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="camera" />
 
     </application>
 

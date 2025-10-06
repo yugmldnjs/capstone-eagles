@@ -39,7 +39,6 @@ android {
 
 dependencies {
 
-    implementation(libs.androidx.lifecycle.service)
     val camerax_version = "1.5.0"
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
@@ -63,7 +62,5 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:${camerax_version}")
     implementation("androidx.camera:camera-view:${camerax_version}")
 
-    // 티맵 api
-    implementation(files("libs/tmap-sdk-3.0.aar"))
-    implementation(files("libs/vsm-tmap-sdk-v2-android-1.7.45.aar"))
+
 }
