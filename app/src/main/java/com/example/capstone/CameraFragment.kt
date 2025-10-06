@@ -1,3 +1,4 @@
+/*
 package com.example.capstone
 
 import android.Manifest
@@ -198,4 +199,4 @@ class CameraFragment : Fragment() {
         private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
     }
-}
+}*/

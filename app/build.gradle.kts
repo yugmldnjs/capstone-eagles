@@ -6,7 +6,7 @@ plugins {
 android {
     namespace = "com.example.capstone"
     compileSdk = 36
-viewBinding.isEnabled=true  // 뷰바인딩
+    viewBinding.isEnabled=true  // 뷰바인딩
     defaultConfig {
         applicationId = "com.example.capstone"
         minSdk = 24
@@ -38,6 +38,9 @@ viewBinding.isEnabled=true  // 뷰바인딩
 
 
 dependencies {
+
+    implementation("androidx.lifecycle:lifecycle-service:2.7.0")
+
 
     val camerax_version = "1.5.0"
     implementation(libs.androidx.core.ktx)

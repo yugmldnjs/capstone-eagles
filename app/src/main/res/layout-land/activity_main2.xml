@@ -9,6 +9,13 @@
     android:background="#313131"
     tools:context=".MainActivity2">
 
+    <!-- 카메라 프리뷰 (Fragment 대신 직접 배치) -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/viewFinder"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+
+
     <FrameLayout
         android:id="@+id/fragment_container"
         android:layout_width="match_parent"
