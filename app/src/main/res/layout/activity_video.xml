@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:background="@android:color/black"
     tools:context=".VideoActivity">
 
-    <!-- 임시 이미지 파일. 추후 동영상 재생 구현 후 실제 UI로 바꿀 예정-->
-    <ImageView
-        android:id="@+id/video_player"
+    <VideoView
+        android:id="@+id/video_player_view"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:src="@drawable/video_play"
-        android:scaleType="centerCrop"/>
-</LinearLayout>
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true" />
+
+</RelativeLayout>
