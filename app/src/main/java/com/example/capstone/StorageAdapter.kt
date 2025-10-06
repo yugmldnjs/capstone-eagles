@@ -1,10 +1,12 @@
 package com.example.capstone
 
 import android.app.AlertDialog
+import android.net.Uri
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.Button
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
 import com.example.capstone.databinding.ItemStorageBinding
 
 
@@ -25,6 +27,14 @@ class StorageAdapter(
 
     override fun onBindViewHolder(holder: StorageViewHolder, position: Int) {
         val currentItem = videoList[position]
+
+        // 🔴🔴🔴 썸네일 로딩 로직 시작 🔴🔴🔴
+        Glide.with(holder.itemView.context) // 1. Glide를 현재 아이템뷰의 context로 초기화
+            .load(Uri.parse(currentItem.videoPath)) // 2. 비디오 경로(URI)를 로드
+            .placeholder(R.drawable.copy) // 3. 로딩 중에 보여줄 기본 이미지
+            .error(R.drawable.copy) // 4. 에러 발생 시 보여줄 기본 이미지
+            .into(holder.binding.thumbnailImageView) // 5. 이미지를 표시할 ImageView 지정
+        // 🔴🔴🔴 썸네일 로딩 로직 끝 🔴🔴🔴
 
         holder.binding.dateTextView.text = currentItem.date
         holder.binding.timeTextView.text = currentItem.time
