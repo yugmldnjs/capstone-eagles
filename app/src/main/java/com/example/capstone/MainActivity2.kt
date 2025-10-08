@@ -11,12 +11,25 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import com.example.capstone.databinding.ActivityMain2Binding
 import androidx.preference.PreferenceManager
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.widget.TextView
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 
-class MainActivity2 : AppCompatActivity() {
+class MainActivity2 : AppCompatActivity(), LocationListener {
 
     private lateinit var binding: ActivityMain2Binding
     private val viewModel: MainViewModel by viewModels()
+
+    // 속도계 관련 변수
+    private lateinit var locationManager: LocationManager
+    private val locationPermissionCode = 2
 
     private lateinit var mapFragment: MapFragment
 
@@ -100,6 +113,8 @@ class MainActivity2 : AppCompatActivity() {
 
         setupClickListeners()
         observeViewModel()
+
+        checkLocationPermission()  // 속도계 위치 권한
     }
 
     private fun setupClickListeners() {
@@ -242,6 +257,71 @@ class MainActivity2 : AppCompatActivity() {
         }
     }
 
+    private fun checkLocationPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), locationPermissionCode)
+        } else {
+            startLocationUpdates()
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == locationPermissionCode && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startLocationUpdates()
+        } else {
+            Toast.makeText(this, "속도 측정을 위해 위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun startLocationUpdates() {
+        if (!::locationManager.isInitialized) {
+            locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        }
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            // 1초마다, 0미터 이동 시 업데이트
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0f, this)
+        }
+    }
+
+    // LocationListener 부분
+
+    override fun onLocationChanged(location: Location) {
+        val speedKmh = location.speed * 3.6  // 단위 : km/h
+        binding.speedTextView.text = String.format("%.1f", speedKmh)
+    }
+
+    // 사용자가 GPS를 껐을 때 GPS 켜달라고 해야함. 속도가 GPS 기반 측정이라 끄면 안됨.
+    override fun onProviderDisabled(provider: String) {
+        Toast.makeText(this, "속도 측정을 위해 GPS를 켜주세요.", Toast.LENGTH_LONG).show()
+        binding.speedTextView.text = "--"
+    }
+
+    // 사용자가 GPS를 다시 켰을 때
+    override fun onProviderEnabled(provider: String) {
+        Toast.makeText(this, "GPS가 다시 연결되었습니다.", Toast.LENGTH_SHORT).show()
+    }
+
+
+    override fun onResume() {
+        super.onResume()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            startLocationUpdates()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::locationManager.isInitialized) {
+            locationManager.removeUpdates(this)
+        }
+    }
+
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
+
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (serviceBound) {
@@ -254,4 +334,8 @@ class MainActivity2 : AppCompatActivity() {
             // 이미 해제된 경우 무시
         }
     }
+
+
+
 }
+
