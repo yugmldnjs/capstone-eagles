@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "970478979713",
+    "project_id": "bicycle-blackbox",
+    "storage_bucket": "bicycle-blackbox.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:970478979713:android:c0f2ad26dda6a8ed549b80",
+        "android_client_info": {
+          "package_name": "com.example.capstone"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBVDyEN0b40pEBYcSkLdGprf6KikYLKi5Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

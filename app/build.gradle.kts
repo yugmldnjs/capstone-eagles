@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     id("kotlin-kapt")
+    alias(libs.plugins.google.gms.google.services)
 }
 
 android {
@@ -40,6 +41,8 @@ android {
 
 dependencies {
 
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
     val camerax_version = "1.5.0"
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
