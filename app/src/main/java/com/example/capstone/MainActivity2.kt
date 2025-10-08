@@ -338,4 +338,3 @@ class MainActivity2 : AppCompatActivity(), LocationListener {
 
 
 }
-
