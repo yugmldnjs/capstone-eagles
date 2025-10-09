@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -21,11 +22,18 @@ import androidx.camera.video.*
 import androidx.camera.view.PreviewView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import java.text.SimpleDateFormat
 import java.util.*
 
-class RecordingService : LifecycleService() {
+class RecordingService : Service(), LifecycleOwner {
+
+    private val lifecycleRegistry = LifecycleRegistry(this)
+
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry
 
     private val binder = LocalBinder()
     private var videoCapture: VideoCapture<Recorder>? = null
@@ -41,15 +49,17 @@ class RecordingService : LifecycleService() {
     }
 
     override fun onBind(intent: Intent): IBinder {
-        super.onBind(intent)
         return binder
     }
 
     override fun onCreate() {
         super.onCreate()
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        lifecycleRegistry.currentState = Lifecycle.State.STARTED
         Log.d(TAG, "RecordingService onCreate()")
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
+        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
     }
 
     fun setPreviewViews(mainPreview: PreviewView, miniPreview: PreviewView) {
@@ -148,10 +158,10 @@ class RecordingService : LifecycleService() {
                 preview,
                 videoCapture
             )
-            Log.d(TAG, "✅ Camera bound successfully (Preview + VideoCapture)")
+            Log.d(TAG, "Camera bound successfully (Preview + VideoCapture)")
             updateNotification("카메라 대기 중")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Camera binding failed", e)
+            Log.e(TAG, "Camera binding failed", e)
         }
     }
 
@@ -206,7 +216,7 @@ class RecordingService : LifecycleService() {
                         is VideoRecordEvent.Start -> {
                             updateNotification("녹화 중...")
                             sendBroadcast(Intent(ACTION_RECORDING_STARTED))
-                            Log.d(TAG, "✅ 녹화 시작 성공!")
+                            Log.d(TAG, "녹화 시작 성공!")
                         }
                         is VideoRecordEvent.Finalize -> {
                             if (!recordEvent.hasError()) {
@@ -299,6 +309,7 @@ class RecordingService : LifecycleService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         recording?.stop()
         cameraProvider?.unbindAll()
     }
