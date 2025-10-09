@@ -43,6 +43,10 @@ dependencies {
 
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+
+    implementation("androidx.lifecycle:lifecycle-service:2.7.0")
+    implementation("com.google.guava:guava:33.0.0-android")
+
     val camerax_version = "1.5.0"
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

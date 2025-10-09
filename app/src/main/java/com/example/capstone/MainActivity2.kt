@@ -1,21 +1,70 @@
 package com.example.capstone
 
-import android.content.Intent
+import android.content.*
+import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
+import android.util.Log
 import android.view.View
+import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import com.example.capstone.databinding.ActivityMain2Binding
 import androidx.preference.PreferenceManager
+
 
 class MainActivity2 : AppCompatActivity() {
 
     private lateinit var binding: ActivityMain2Binding
     private val viewModel: MainViewModel by viewModels()
 
-
-    private lateinit var cameraFragment: CameraFragment
+    // private lateinit var cameraFragment: CameraFragment
     private lateinit var mapFragment: MapFragment
+
+    private var recordingService: RecordingService? = null
+    private var serviceBound = false
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val binder = service as RecordingService.LocalBinder
+            recordingService = binder.getService()
+            serviceBound = true
+
+            Log.d("MainActivity2", "Service connected")
+
+            // View가 완전히 그려진 후 카메라 초기화
+            binding.viewFinder.post {
+                binding.miniCamera.post {
+                    recordingService?.setPreviewViews(binding.viewFinder, binding.miniCamera)
+
+                    // 서비스 상태를 ViewModel에 동기화
+                    viewModel.setRecordingState(recordingService?.isRecording() ?: false)
+                }
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            recordingService = null
+            serviceBound = false
+        }
+    }
+
+    private val recordingReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                RecordingService.ACTION_RECORDING_STARTED -> {
+                    viewModel.setRecordingState(true)
+                }
+                RecordingService.ACTION_RECORDING_STOPPED -> {
+                    viewModel.setRecordingState(false)
+                }
+                RecordingService.ACTION_RECORDING_SAVED -> {
+                    val message = intent.getStringExtra("message") ?: "영상 저장 완료"
+                    Toast.makeText(this@MainActivity2, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,21 +73,32 @@ class MainActivity2 : AppCompatActivity() {
 
         // 앱이 처음 시작될 때만 초기 프래그먼트 설정
         if (savedInstanceState == null) {
-            // 앱 최초 실행 시 -> 새로운 Fragment를 만들고 태그를 붙여 추가
-            cameraFragment = CameraFragment()
             mapFragment = MapFragment()
             supportFragmentManager.beginTransaction().apply {
-                add(R.id.fragment_container, cameraFragment, "CAMERA_FRAGMENT")
                 add(R.id.fragment_container, mapFragment, "MAP_FRAGMENT")
                 hide(mapFragment)
             }.commit()
         } else {
-            // 화면 회전 후 -> FragmentManager가 복원한 Fragment를 태그로 찾음
-            cameraFragment = supportFragmentManager.findFragmentByTag("CAMERA_FRAGMENT") as CameraFragment
             mapFragment = supportFragmentManager.findFragmentByTag("MAP_FRAGMENT") as MapFragment
         }
 
-        // 함수화
+        // 서비스 시작 및 바인딩
+        val serviceIntent = Intent(this, RecordingService::class.java)
+        startService(serviceIntent)
+        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+
+        // 브로드캐스트 리시버 등록
+        val filter = IntentFilter().apply {
+            addAction(RecordingService.ACTION_RECORDING_STARTED)
+            addAction(RecordingService.ACTION_RECORDING_STOPPED)
+            addAction(RecordingService.ACTION_RECORDING_SAVED)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(recordingReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(recordingReceiver, filter)
+        }
+
         setupClickListeners()
         observeViewModel()
     }
@@ -54,7 +114,7 @@ class MainActivity2 : AppCompatActivity() {
             if (viewModel.isMapVisible.value == true) {
                 showCameraView()
             } else {
-                viewModel.requestToggleRecording()
+                toggleRecording()
             }
         }
         binding.mapBtn.setOnClickListener {
@@ -69,9 +129,54 @@ class MainActivity2 : AppCompatActivity() {
         }
     }
 
+    private fun toggleRecording() {
+        Log.d("MainActivity2", "toggleRecording called, serviceBound=$serviceBound")
+
+        if (!serviceBound || recordingService == null) {
+            Log.e("MainActivity2", "Service not bound or null")
+            Toast.makeText(this, "서비스 연결 중입니다. 잠시 후 다시 시도하세요.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val isRecording = recordingService?.isRecording() ?: false
+        Log.d("MainActivity2", "Current recording state: $isRecording")
+
+        if (isRecording) {
+            Log.d("MainActivity2", "Calling stopRecording")
+            recordingService?.stopRecording()
+
+            // 즉시 UI 업데이트 (브로드캐스트 오기 전에)
+            binding.camera.postDelayed({
+                val stillRecording = recordingService?.isRecording() ?: false
+                if (!stillRecording) {
+                    viewModel.setRecordingState(false)
+                    Log.d("MainActivity2", "Recording confirmed stopped")
+                } else {
+                    Log.e("MainActivity2", "Recording failed to stop")
+                    Toast.makeText(this, "녹화 중지 실패", Toast.LENGTH_SHORT).show()
+                }
+            }, 500)
+        } else {
+            Log.d("MainActivity2", "Calling startRecording")
+            recordingService?.startRecording()
+
+            // 즉시 UI 업데이트 (브로드캐스트 오기 전에)
+            binding.camera.postDelayed({
+                if (recordingService?.isRecording() == true) {
+                    viewModel.setRecordingState(true)
+                    Log.d("MainActivity2", "Recording confirmed started")
+                } else {
+                    Log.e("MainActivity2", "Recording failed to start")
+                    Toast.makeText(this, "녹화 시작 실패. 권한을 확인하세요.", Toast.LENGTH_SHORT).show()
+                }
+            }, 500)
+        }
+    }
+
     private fun observeViewModel() {
         viewModel.isFlashOn.observe(this) { isOn ->
             updateFlashState(isOn)
+            recordingService?.enableTorch(isOn)
         }
         viewModel.isMapVisible.observe(this) { isVisible ->
             syncUiToState()
@@ -79,10 +184,8 @@ class MainActivity2 : AppCompatActivity() {
 
         viewModel.isRecording.observe(this) { isRecording ->
             if (isRecording) {
-                // 녹화 중일 때 아이콘 (예: 중지 아이콘)
                 binding.camera.setImageResource(R.drawable.camera_on)
             } else {
-                // 녹화 중이 아닐 때 아이콘 (예: 녹화 아이콘)
                 binding.camera.setImageResource(R.drawable.camera)
             }
         }
@@ -90,8 +193,8 @@ class MainActivity2 : AppCompatActivity() {
 
     // 지도 화면인 경우
     private fun showMapView() {
+        binding.viewFinder.visibility = View.GONE
         supportFragmentManager.beginTransaction()
-            .hide(cameraFragment)
             .show(mapFragment)
             .commit()
         viewModel.setMapVisible(true)
@@ -99,9 +202,9 @@ class MainActivity2 : AppCompatActivity() {
 
     // 카메라 화면인 경우
     private fun showCameraView() {
+        binding.viewFinder.visibility = View.VISIBLE
         supportFragmentManager.beginTransaction()
             .hide(mapFragment)
-            .show(cameraFragment)
             .commit()
         viewModel.setMapVisible(false)
     }
@@ -125,12 +228,31 @@ class MainActivity2 : AppCompatActivity() {
 
             val prefs = PreferenceManager.getDefaultSharedPreferences(this)
             val shouldShowMinimap = prefs.getBoolean("show_minimap_on_map", true)
-            binding.miniCamera.visibility = if (shouldShowMinimap) View.VISIBLE else View.GONE
+            if (shouldShowMinimap) {
+                binding.miniCamera.visibility = View.VISIBLE
+                recordingService?.updateMiniPreviewVisibility(true)
+            } else {
+                binding.miniCamera.visibility = View.GONE
+            }
         } else {
             binding.settingsBtn.visibility = View.VISIBLE
             binding.flashBtn.visibility = View.VISIBLE
             binding.speedTextView.visibility = View.VISIBLE
             binding.miniCamera.visibility = View.GONE
+            recordingService?.updateMiniPreviewVisibility(false)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (serviceBound) {
+            unbindService(serviceConnection)
+            serviceBound = false
+        }
+        try {
+            unregisterReceiver(recordingReceiver)
+        } catch (e: Exception) {
+            // 이미 해제된 경우 무시
         }
     }
 }

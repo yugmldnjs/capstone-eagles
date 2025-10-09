@@ -1,3 +1,4 @@
+/*
 package com.example.capstone
 
 import android.Manifest
@@ -172,3 +173,5 @@ class CameraFragment : Fragment() {
             }.toTypedArray()
     }
 }
+8/
+ */
