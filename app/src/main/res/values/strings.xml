@@ -13,6 +13,7 @@
     <string name="video_time">0시간 00분</string>
     <string name="video_size">0MB</string>
     <string name="video_none">저장된 영상이 없습니다.</string>
+    <string name="hello_blank_fragment">Hello blank fragment</string>
 
 
 </resources>
