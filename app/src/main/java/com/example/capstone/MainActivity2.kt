@@ -128,11 +128,7 @@ class MainActivity2 : AppCompatActivity() {
             startActivity(Intent(this, StorageActivity::class.java))
         }
         binding.camera.setOnClickListener {
-            if (viewModel.isMapVisible.value == true) {
-                showCameraView()
-            } else {
-                toggleRecording()
-            }
+            toggleRecording()
         }
         binding.mapBtn.setOnClickListener {
             if (viewModel.isMapVisible.value == true) {
