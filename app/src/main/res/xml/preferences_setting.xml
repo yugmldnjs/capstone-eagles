@@ -108,7 +108,17 @@
 -->
     </PreferenceCategory>
 
+    <!-- 임시로 추가함 -->
+    <PreferenceCategory app:title="계정 설정"
+        app:iconSpaceReserved="false">
 
+        <Preference
+            app:key="log_out"
+            app:title="로그아웃"
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+    </PreferenceCategory>
 
 
 
