@@ -72,5 +72,7 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:theme="@style/Theme.Capstone.EdgeToEdge" />
+        <activity android:name=".FindEmailActivity" />
+        <activity android:name=".FindPasswordActivity" />
     </application>
 </manifest>
