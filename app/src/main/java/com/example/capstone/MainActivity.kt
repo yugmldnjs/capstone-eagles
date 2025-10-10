@@ -12,7 +12,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         // 메인 화면으로 이동
-        val intent = Intent(this, MainActivity2::class.java)
+        // val intent = Intent(this, MainActivity2::class.java)
+
+        // 로그인 화면으로 이동
+        val intent = Intent(this, LogInActivity::class.java)
 
         startActivity(intent)
 

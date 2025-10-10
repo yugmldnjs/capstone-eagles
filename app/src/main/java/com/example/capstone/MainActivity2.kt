@@ -101,11 +101,28 @@ class MainActivity2 : AppCompatActivity() {
 
         setupClickListeners()
         observeViewModel()
+
+        // 프래그먼트 뒤로가기 감지
+        supportFragmentManager.addOnBackStackChangedListener {
+            // backStackEntryCount가 0이라는 것은 모든 프래그먼트가 닫혔다는 의미임.
+            if (supportFragmentManager.backStackEntryCount == 0) {
+                // 버튼 다시 다 보여줘야함. (메인이니)
+                binding.settingsBtn.visibility = View.VISIBLE
+                binding.storageBtn.visibility = View.VISIBLE
+                binding.camera.visibility = View.VISIBLE
+                binding.mapBtn.visibility = View.VISIBLE
+                binding.flashBtn.visibility = View.VISIBLE
+
+                // 현재 뷰 상태에 맞게 속도계와 미니카메라도 복원
+                syncUiToState()
+            }
+        }
     }
 
     private fun setupClickListeners() {
         binding.settingsBtn.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
+            //startActivity(Intent(this, SettingsActivity::class.java))
+            showSettingsFragment()
         }
         binding.storageBtn.setOnClickListener {
             startActivity(Intent(this, StorageActivity::class.java))
@@ -127,6 +144,22 @@ class MainActivity2 : AppCompatActivity() {
         binding.flashBtn.setOnClickListener {
             viewModel.toggleFlash()
         }
+    }
+
+    private fun showSettingsFragment() {
+        // 버튼들 다 숨겨버려!!!
+        binding.settingsBtn.visibility = View.GONE
+        binding.storageBtn.visibility = View.GONE
+        binding.camera.visibility = View.GONE
+        binding.mapBtn.visibility = View.GONE
+        binding.flashBtn.visibility = View.GONE
+        binding.speedTextView.visibility = View.GONE
+
+
+        supportFragmentManager.beginTransaction()
+            .add(R.id.fragment_container, SettingsContainerFragment(), "SETTINGS")
+            .addToBackStack("SETTINGS")
+            .commit()
     }
 
     private fun toggleRecording() {
