@@ -2,6 +2,7 @@ package com.example.capstone
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -20,14 +21,9 @@ class SignInActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContentView(R.layout.activity_sign_in)
+
         auth = FirebaseAuth.getInstance()
         firestore = FirebaseFirestore.getInstance()
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
 
         binding = ActivitySignInBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -38,10 +34,43 @@ class SignInActivity : AppCompatActivity() {
             insets
         }
 
-
         binding.realSigninBtn.setOnClickListener {
-            val intent = Intent(this, LogInActivity::class.java)
-            startActivity(intent)
+            val email = binding.editTextTextEmailAddress.text.toString().trim()
+            val password = binding.editTextTextPassword.text.toString().trim()
+            val nickname = binding.editTextText.text.toString().trim() // 닉네임 ID 변경
+
+            if (email.isEmpty() || password.isEmpty() || nickname.isEmpty()) {
+                Toast.makeText(this, "이메일, 비밀번호, 닉네임을 모두 입력해주세요.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            auth.createUserWithEmailAndPassword(email, password)
+                .addOnCompleteListener(this) { task ->
+                    if (task.isSuccessful) {
+                        Toast.makeText(this, "회원가입에 성공했습니다.", Toast.LENGTH_SHORT).show()
+
+                        val user = auth.currentUser
+                        val uid = user?.uid
+
+                        if (uid != null) {
+                            val userMap = hashMapOf(
+                                "nickname" to nickname,
+                                "email" to email
+                            )
+                            firestore.collection("users").document(uid).set(userMap)
+                                .addOnSuccessListener {
+                                    val intent = Intent(this, LogInActivity::class.java)
+                                    startActivity(intent)
+                                    finish()
+                                }
+                                .addOnFailureListener { e ->
+                                    Toast.makeText(this, "데이터베이스 저장에 실패했습니다: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                        }
+                    } else {
+                        Toast.makeText(this, "회원가입 실패: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
         }
 
     }
