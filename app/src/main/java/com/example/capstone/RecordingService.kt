@@ -186,7 +186,7 @@ class RecordingService : Service(), LifecycleOwner {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
             if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MyBlackbox")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MyBlackboxVideos")
             }
         }
 
