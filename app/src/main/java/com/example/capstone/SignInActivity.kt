@@ -8,6 +8,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.example.capstone.databinding.ActivityLogInBinding
 import com.example.capstone.databinding.ActivitySignInBinding
+import android.text.method.PasswordTransformationMethod
 
 class SignInActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySignInBinding
@@ -36,6 +37,23 @@ class SignInActivity : AppCompatActivity() {
             val intent = Intent(this, LogInActivity::class.java)
             startActivity(intent)
         }
+
+// 비밀번호 보이기/숨기기 토글 버튼 리스너
+        binding.imageButton4.setOnClickListener {
+            // 현재 커서 위치 저장용
+            val cursorPosition = binding.editTextTextPassword.selectionEnd
+
+            if (binding.editTextTextPassword.transformationMethod == PasswordTransformationMethod.getInstance()) {
+                binding.editTextTextPassword.transformationMethod = null
+                binding.imageButton4.setImageResource(R.drawable.show_password)
+            } else {
+                binding.editTextTextPassword.transformationMethod = PasswordTransformationMethod.getInstance()
+                binding.imageButton4.setImageResource(R.drawable.hide_password)
+            }
+
+            binding.editTextTextPassword.setSelection(cursorPosition)
+        }
+
 
     }
 }

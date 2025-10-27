@@ -2,6 +2,7 @@ package com.example.capstone
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.method.PasswordTransformationMethod
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -42,6 +43,20 @@ class LogInActivity : AppCompatActivity() {
             startActivity(intent)
         }
 
+        binding.imageButton4.setOnClickListener {
+            // 현재 커서 위치 저장용
+            val cursorPosition = binding.editTextTextPassword.selectionEnd
+
+            if (binding.editTextTextPassword.transformationMethod == PasswordTransformationMethod.getInstance()) {
+                binding.editTextTextPassword.transformationMethod = null
+                binding.imageButton4.setImageResource(R.drawable.show_password)
+            } else {
+                binding.editTextTextPassword.transformationMethod = PasswordTransformationMethod.getInstance()
+                binding.imageButton4.setImageResource(R.drawable.hide_password)
+            }
+
+            binding.editTextTextPassword.setSelection(cursorPosition)
+        }
 
     }
 }
