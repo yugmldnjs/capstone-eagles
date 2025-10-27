@@ -156,6 +156,10 @@ class MainActivity2 : AppCompatActivity(), LocationListener {
         binding.flashBtn.setOnClickListener {
             viewModel.toggleFlash()
         }
+        binding.miniCamera.setOnClickListener {
+            // 미니 카메라를 클릭하면 메인 카메라 뷰로 전환합니다.
+            showCameraView()
+        }
     }
 
     private fun showSettingsFragment() {
