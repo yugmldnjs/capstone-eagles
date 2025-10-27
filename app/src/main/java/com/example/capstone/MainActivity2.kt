@@ -282,6 +282,7 @@ class MainActivity2 : AppCompatActivity(), LocationListener {
         updateFlashState(viewModel.isFlashOn.value ?: false)
 
         if (viewModel.isMapVisible.value == true) {
+            binding.mapBtn.setImageResource(R.drawable.main_camera)
             binding.settingsBtn.visibility = View.GONE
             binding.flashBtn.visibility = View.GONE
             binding.speedTextView.visibility = View.GONE
@@ -295,6 +296,7 @@ class MainActivity2 : AppCompatActivity(), LocationListener {
                 binding.miniCamera.visibility = View.GONE
             }
         } else {
+            binding.mapBtn.setImageResource(R.drawable.map)
             binding.settingsBtn.visibility = View.VISIBLE
             binding.flashBtn.visibility = View.VISIBLE
             binding.speedTextView.visibility = View.VISIBLE
