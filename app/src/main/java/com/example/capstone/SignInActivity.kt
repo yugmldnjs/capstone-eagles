@@ -23,6 +23,9 @@ class SignInActivity : AppCompatActivity() {
             insets
         }
 
+
+
+
         binding = ActivitySignInBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -32,6 +35,20 @@ class SignInActivity : AppCompatActivity() {
             insets
         }
 
+
+        binding.SignInBackBtn.setOnClickListener {
+            // 'YourTargetActivity'를 실제 이동할 액티비티 클래스로 변경하세요.
+            // 예: val intent = Intent(this, LogInActivity::class.java)
+
+            // 만약 단순히 현재 액티비티를 닫고 이전 화면으로 돌아가려면
+            finish() // 이 함수를 호출하면 됩니다.
+
+
+           /* val intent = Intent(this, LogInActivity::class.java)
+            startActivity(intent)*/
+
+
+        }
 
         binding.realSigninBtn.setOnClickListener {
             val intent = Intent(this, LogInActivity::class.java)

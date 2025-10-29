@@ -43,6 +43,12 @@ class LogInActivity : AppCompatActivity() {
             startActivity(intent)
         }
 
+        binding.pwSearch.setOnClickListener {
+            val intent = Intent(this, PasswordSearch::class.java)
+            startActivity(intent)
+        }
+
+
         binding.imageButton4.setOnClickListener {
             // 현재 커서 위치 저장용
             val cursorPosition = binding.editTextTextPassword.selectionEnd
