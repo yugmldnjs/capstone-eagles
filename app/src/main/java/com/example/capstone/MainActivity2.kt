@@ -20,6 +20,10 @@ import android.location.LocationManager
 import android.widget.TextView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import android.os.Handler
+import android.os.Looper
+import android.view.MotionEvent
+import android.view.WindowManager
 
 
 class MainActivity2 : AppCompatActivity(), LocationListener {
@@ -35,6 +39,12 @@ class MainActivity2 : AppCompatActivity(), LocationListener {
 
     private var recordingService: RecordingService? = null
     private var serviceBound = false
+
+    private val powerSaveHandler = Handler(Looper.getMainLooper())
+    private var powerSaveRunnable: Runnable? = null
+    // 원래 화면 밝기 저장 변수
+    private var originalBrightness: Float = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+    private var isPowerSavingActive = false
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -249,11 +259,71 @@ class MainActivity2 : AppCompatActivity(), LocationListener {
         viewModel.isRecording.observe(this) { isRecording ->
             if (isRecording) {
                 binding.camera.setImageResource(R.drawable.camera_on)
+                if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                    startPowerSavingTimer()
+                }
             } else {
                 binding.camera.setImageResource(R.drawable.camera)
+                cancelPowerSaving()
             }
         }
     }
+
+    // 절전 모드 타이머 시작
+    private fun startPowerSavingTimer() {
+        // 기존 타이머가 있다면 취소
+        cancelPowerSaving()
+
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        val isEnabled = prefs.getBoolean("rec_dark_mode", false)
+
+        if (isEnabled) {
+            val timeString = prefs.getString("rec_dark_mode_time", "3") ?: "3"
+
+            // "3"을 3초가 아닌 3분 (3 * 60 * 1000)으로 계산하도록 수정
+            val delayMs = (timeString.toLongOrNull() ?: 3L) * 60 * 1000L
+
+            powerSaveRunnable = Runnable {
+                activatePowerSavingMode()
+            }
+            powerSaveHandler.postDelayed(powerSaveRunnable!!, delayMs)
+        }
+    }
+
+    // 절전 모드 활성화 (화면 어둡게)
+    private fun activatePowerSavingMode() {
+        // 현재 밝기를 한 번만 저장
+        if (!isPowerSavingActive) {
+            // 현재 밝기를 저장 (이 값이 -1.0f 일지라도 그대로 저장)
+            originalBrightness = window.attributes.screenBrightness
+            val layoutParams = window.attributes
+            layoutParams.screenBrightness = 0.01f
+            window.attributes = layoutParams
+
+            // 절전 모드 플래그 설정
+            isPowerSavingActive = true
+        }
+    }
+
+    // 절전 모드 취소 (타이머 중지 및 화면 밝기 복구)
+    private fun cancelPowerSaving() {
+        // 1. 타이머(Runnable)가 예약되어 있다면 취소
+        if (powerSaveRunnable != null) {
+            powerSaveHandler.removeCallbacks(powerSaveRunnable!!)
+            powerSaveRunnable = null
+        }
+
+        if (isPowerSavingActive) {
+            // 저장해둔 원래 밝기(시스템 기본값 -1.0f 포함)로 복원
+            val layoutParams = window.attributes
+            layoutParams.screenBrightness = originalBrightness
+            window.attributes = layoutParams
+
+            // 절전 모드 플래그 해제
+            isPowerSavingActive = false
+        }
+    }
+
 
     // 지도 화면인 경우
     private fun showMapView() {
@@ -361,6 +431,10 @@ class MainActivity2 : AppCompatActivity(), LocationListener {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             startLocationUpdates()
         }
+        if (viewModel.isRecording.value == true) {
+            startPowerSavingTimer()
+        }
+
     }
 
     override fun onPause() {
@@ -368,10 +442,24 @@ class MainActivity2 : AppCompatActivity(), LocationListener {
         if (::locationManager.isInitialized) {
             locationManager.removeUpdates(this)
         }
+        cancelPowerSaving()
     }
 
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
 
+    }
+
+    // 화면 터치했을 경우 다시 밝아지게
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        if (ev?.action == MotionEvent.ACTION_DOWN) {
+            // 녹화 중에만 화면 터치에 반응
+            if (viewModel.isRecording.value == true) {
+
+                cancelPowerSaving()
+                startPowerSavingTimer()
+            }
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     override fun onDestroy() {
@@ -385,6 +473,7 @@ class MainActivity2 : AppCompatActivity(), LocationListener {
         } catch (e: Exception) {
             // 이미 해제된 경우 무시
         }
+        cancelPowerSaving()
     }
 
 
