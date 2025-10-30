@@ -225,7 +225,7 @@ class MainActivity2 : AppCompatActivity() {
         binding.viewFinder.visibility = View.GONE
         supportFragmentManager.beginTransaction()
             .show(mapFragment)
-            .commit()
+            .commitAllowingStateLoss()
         viewModel.setMapVisible(true)
     }
 
