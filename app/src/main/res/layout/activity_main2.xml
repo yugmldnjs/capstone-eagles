@@ -111,30 +111,30 @@
       app:layout_constraintTop_toTopOf="parent"
       app:layout_constraintVertical_bias="0.691" />
 
-  <TextView
-      android:id="@+id/accelerate"
-      android:layout_width="wrap_content"
-      android:layout_height="wrap_content"
-      android:layout_marginTop="20dp"
-      android:layout_marginStart="20dp"
-      app:layout_constraintStart_toStartOf="parent"
-      app:layout_constraintTop_toTopOf="parent"/>
+<!--  <TextView-->
+<!--      android:id="@+id/accelerate"-->
+<!--      android:layout_width="wrap_content"-->
+<!--      android:layout_height="wrap_content"-->
+<!--      android:layout_marginTop="20dp"-->
+<!--      android:layout_marginStart="20dp"-->
+<!--      app:layout_constraintStart_toStartOf="parent"-->
+<!--      app:layout_constraintTop_toTopOf="parent"/>-->
 
-  <TextView
-      android:id="@+id/crash"
-      android:layout_width="wrap_content"
-      android:layout_height="wrap_content"
-      android:layout_marginStart="20dp"
-      app:layout_constraintStart_toStartOf="parent"
-      app:layout_constraintTop_toBottomOf="@+id/accelerate" />
+<!--  <TextView-->
+<!--      android:id="@+id/crash"-->
+<!--      android:layout_width="wrap_content"-->
+<!--      android:layout_height="wrap_content"-->
+<!--      android:layout_marginStart="20dp"-->
+<!--      app:layout_constraintStart_toStartOf="parent"-->
+<!--      app:layout_constraintTop_toBottomOf="@+id/accelerate" />-->
 
-    <TextView
-        android:id="@+id/fallen"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="20dp"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/crash" />
+<!--    <TextView-->
+<!--        android:id="@+id/fallen"-->
+<!--        android:layout_width="wrap_content"-->
+<!--        android:layout_height="wrap_content"-->
+<!--        android:layout_marginStart="20dp"-->
+<!--        app:layout_constraintStart_toStartOf="parent"-->
+<!--        app:layout_constraintTop_toBottomOf="@+id/crash" />-->
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>
