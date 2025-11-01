@@ -140,6 +140,11 @@ class MainActivity2 : AppCompatActivity() {
         binding.flashBtn.setOnClickListener {
             viewModel.toggleFlash()
         }
+
+        binding.miniCamera.setOnClickListener {
+            // 미니 카메라를 클릭하면 메인 카메라 뷰로 전환합니다.
+            showCameraView()
+        }
     }
 
     private fun showSettingsFragment() {
@@ -251,6 +256,7 @@ class MainActivity2 : AppCompatActivity() {
         updateFlashState(viewModel.isFlashOn.value ?: false)
 
         if (viewModel.isMapVisible.value == true) {
+            binding.mapBtn.setImageResource(R.drawable.main_camera)
             binding.settingsBtn.visibility = View.GONE
             binding.flashBtn.visibility = View.GONE
             binding.speedTextView.visibility = View.GONE
@@ -264,6 +270,7 @@ class MainActivity2 : AppCompatActivity() {
                 binding.miniCamera.visibility = View.GONE
             }
         } else {
+            binding.mapBtn.setImageResource(R.drawable.map)
             binding.settingsBtn.visibility = View.VISIBLE
             binding.flashBtn.visibility = View.VISIBLE
             binding.speedTextView.visibility = View.VISIBLE
