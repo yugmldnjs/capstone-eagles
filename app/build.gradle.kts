@@ -95,3 +95,5 @@ fun getTmapApiKey(): String {
     }
     return properties.getProperty("TMAP_API_KEY", "")
 }
+
+apply(plugin = "com.google.gms.google-services")
