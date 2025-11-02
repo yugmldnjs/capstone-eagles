@@ -40,6 +40,9 @@
         android:theme="@style/Theme.Capstone">
 
         <activity
+            android:name=".PasswordSearch"
+            android:exported="false" />
+        <activity
             android:name=".SignInActivity"
             android:exported="false" />
         <activity

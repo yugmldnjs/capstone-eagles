@@ -46,14 +46,9 @@ class LogInActivity : AppCompatActivity() {
             performLogin()
         }
 
-        // 이메일 찾기 버튼
-        binding.button2.setOnClickListener {
-            startActivity(Intent(this, FindEmailActivity::class.java))
-        }
-
         // 비밀번호 찾기 버튼
-        binding.button3.setOnClickListener {
-            startActivity(Intent(this, FindPasswordActivity::class.java))
+        binding.pwSearch.setOnClickListener {
+            startActivity(Intent(this, PasswordSearch::class.java))
         }
     }
 

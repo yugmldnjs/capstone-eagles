@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/main"
@@ -91,7 +90,7 @@
         android:id="@+id/imageButton4"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:background="#FFFFFF"
+        android:background="@android:color/transparent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.952"
@@ -101,21 +100,7 @@
         app:srcCompat="@drawable/hide_password" />
 
     <Button
-        android:id="@+id/button2"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="@android:color/transparent"
-        android:text="이메일 찾기"
-        android:textColor="@color/black"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.037"
-        app:layout_constraintStart_toEndOf="@+id/signinBtn"
-        app:layout_constraintTop_toBottomOf="@+id/loginBtn"
-        app:layout_constraintVertical_bias="0.039" />
-
-    <Button
-        android:id="@+id/button3"
+        android:id="@+id/pw_search"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:background="@android:color/transparent"
@@ -123,36 +108,25 @@
         android:textColor="@color/black"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.0"
-        app:layout_constraintStart_toEndOf="@+id/button2"
+        app:layout_constraintHorizontal_bias="0.779"
+
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/loginBtn"
-        app:layout_constraintVertical_bias="0.039" />
+        app:layout_constraintVertical_bias="0.054" />
 
     <Button
         android:id="@+id/signinBtn"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="32dp"
         android:background="@android:color/transparent"
         android:text="회원가입"
         android:textColor="@color/black"
         app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="@+id/pw_search"
+        app:layout_constraintHorizontal_bias="0.305"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/loginBtn"
-        app:layout_constraintVertical_bias="0.039" />
+        app:layout_constraintVertical_bias="0.054" />
 
-    <!--
-    <ImageButton
-        android:id="@+id/imageButton5"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="32dp"
-        android:background="#FFFFFF"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.49"
-        app:layout_constraintStart_toStartOf="parent"
-        app:srcCompat="@drawable/google_login_button" />
--->
 
 </androidx.constraintlayout.widget.ConstraintLayout>
