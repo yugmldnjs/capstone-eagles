@@ -2,6 +2,7 @@ package com.example.capstone
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.method.PasswordTransformationMethod
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
@@ -50,6 +51,25 @@ class LogInActivity : AppCompatActivity() {
         binding.pwSearch.setOnClickListener {
             startActivity(Intent(this, PasswordSearch::class.java))
         }
+
+        // 비밀번호 보이기/안보이기 버튼
+        binding.imageButton4.setOnClickListener {
+            // 현재 커서 위치 저장용
+            val cursorPosition = binding.editTextTextPassword.selectionEnd
+
+            if (binding.editTextTextPassword.transformationMethod == PasswordTransformationMethod.getInstance()) {
+                binding.editTextTextPassword.transformationMethod = null
+                binding.imageButton4.setImageResource(R.drawable.show_password)
+            } else {
+                binding.editTextTextPassword.transformationMethod = PasswordTransformationMethod.getInstance()
+                binding.imageButton4.setImageResource(R.drawable.hide_password)
+            }
+
+            binding.editTextTextPassword.setSelection(cursorPosition)
+        }
+
+
+
     }
 
     override fun onStart() {
