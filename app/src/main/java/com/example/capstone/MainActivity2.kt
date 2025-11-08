@@ -15,7 +15,10 @@ import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.WindowManager
-
+import android.Manifest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 
 class MainActivity2 : AppCompatActivity() {
 
@@ -59,6 +62,39 @@ class MainActivity2 : AppCompatActivity() {
         }
     }
 
+    private val REQUIRED_PERMISSIONS =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.POST_NOTIFICATIONS 
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            )
+        }
+
+    // 권한 요청 런처
+    private val requestPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
+            val allGranted = permissions.entries.all { it.value }
+
+            if (allGranted) {
+                startAndBindRecordingService()
+            } else {
+                Log.e("MainActivity2", "권한 거부")
+                Toast.makeText(this, "앱 실행에 필요한 모든 권한이 허용되어야 합니다.", Toast.LENGTH_LONG).show()
+            }
+        }
+
+
+
     private val recordingReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -93,9 +129,11 @@ class MainActivity2 : AppCompatActivity() {
         }
 
         // 서비스 시작 및 바인딩
-        val serviceIntent = Intent(this, RecordingService::class.java)
+       /* val serviceIntent = Intent(this, RecordingService::class.java)
         startService(serviceIntent)
-        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)*/
+
+        checkAndRequestPermissions()  // 권한 체크
 
         // 브로드캐스트 리시버 등록
         val filter = IntentFilter().apply {
@@ -129,6 +167,35 @@ class MainActivity2 : AppCompatActivity() {
         }
     }
 
+    private fun checkAndRequestPermissions() {
+        val allPermissionsGranted = REQUIRED_PERMISSIONS.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
+
+        if (allPermissionsGranted) {
+            // 모든 권한이 이미 다 허용이면 안 물어보고 바로 시작
+            Log.d("MainActivity2", "모든 권한이 이미 허용되어 있습니다. 서비스 시작.")
+            startAndBindRecordingService()
+        } else {
+            Log.d("MainActivity2", "필수 권한을 요청합니다.")
+            requestPermissionLauncher.launch(REQUIRED_PERMISSIONS)
+        }
+    }
+
+    private fun startAndBindRecordingService() {
+        if (serviceBound) return
+
+        val serviceIntent = Intent(this, RecordingService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)}
+
+
+
+
     private fun setupClickListeners() {
         binding.settingsBtn.setOnClickListener {
             //startActivity(Intent(this, SettingsActivity::class.java))
@@ -154,6 +221,65 @@ class MainActivity2 : AppCompatActivity() {
         binding.miniCamera.setOnClickListener {
             // 미니 카메라를 클릭하면 메인 카메라 뷰로 전환합니다.
             showCameraView()
+        }
+
+        // 미니카메라 드래그 처리 함수 (사용자 원하는 위치로 이동 위해)
+        setupDraggableMiniCamera()
+    }
+
+    private fun setupDraggableMiniCamera() {
+        var initialViewX = 0f
+        var initialViewY = 0f
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+        var isDragging = false
+        val touchSlop = android.view.ViewConfiguration.get(this).scaledTouchSlop
+
+        binding.miniCamera.setOnTouchListener { view, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    // 터치 시작 위치와 뷰의 현재 위치 저장
+                    initialViewX = view.x
+                    initialViewY = view.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    isDragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - initialTouchX
+                    val dy = event.rawY - initialTouchY
+
+                    // 살짝 움직인거는 터치로,
+                    if (!isDragging && (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop)) {
+                        isDragging = true
+                    }
+
+                    if (isDragging) {
+                        val parent = view.parent as View
+                        val maxX = parent.width - view.width
+                        val maxY = parent.height - view.height
+
+                        // 카메라가 화면 밖으로 안나가게 제한둔거
+                        val newX = (initialViewX + dx).coerceIn(0f, maxX.toFloat())
+                        val newY = (initialViewY + dy).coerceIn(0f, maxY.toFloat())
+
+                        view.x = newX
+                        view.y = newY
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (isDragging) {
+                        isDragging = false
+                    } else {
+                        // 드래그가 아니었다면 터치한거임.
+                        view.performClick()
+                    }
+                    true // 이벤트 종료함
+                }
+                else -> false
+            }
         }
     }
 
