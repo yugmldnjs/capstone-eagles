@@ -480,6 +480,12 @@ class MainActivity2 : AppCompatActivity() {
             unbindService(serviceConnection)
             serviceBound = false
         }
+
+        // 백그라운드에서도 앱 계속 돌아가지 않도록 프로세스 제대로 파괴함.
+        Log.d("MainActivity2", "onDestroy");
+        val serviceIntent = Intent(this, RecordingService::class.java)
+        stopService(serviceIntent)  // 앱 종료했을 때 제대로 Destroy되도록
+
         try {
             unregisterReceiver(recordingReceiver)
         } catch (e: Exception) {
