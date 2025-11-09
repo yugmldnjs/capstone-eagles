@@ -84,6 +84,8 @@ dependencies {
     // Tmap API
     implementation(files("libs/tmap-sdk-3.0.aar"))
     implementation(files("libs/vsm-tmap-sdk-v2-android-1.7.45.aar"))
+
+    implementation("com.google.android.gms:play-services-location:21.0.1")
 }
 
 // Tmap 앱키 안전하게 읽기

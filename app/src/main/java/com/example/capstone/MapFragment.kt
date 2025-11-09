@@ -2,8 +2,9 @@ package com.example.capstone
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.graphics.*
 import android.os.Bundle
+import android.os.Looper
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
@@ -12,7 +13,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.setPadding
 import androidx.fragment.app.Fragment
-import com.skt.tmap.TMapGpsManager
+import com.google.android.gms.location.*
 import com.skt.tmap.TMapView
 import com.example.capstone.data.LocationRepository
 import com.google.firebase.auth.FirebaseAuth
@@ -21,22 +22,26 @@ import com.google.firebase.auth.FirebaseAuth
 class MapFragment : Fragment(R.layout.fragment_map) {
 
     private lateinit var tMapView: TMapView
-    private lateinit var gps: TMapGpsManager
 
-    // 마지막으로 받은 내 위치(버튼 눌러 복귀할 때 사용)
+    // Google Location Services
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var locationCallback: LocationCallback
+    private lateinit var locationRequest: LocationRequest
+
+    // 마지막으로 받은 내 위치
     private var lastLat: Double? = null
     private var lastLon: Double? = null
 
-    // 사용자가 지도를 손으로 움직이면 false, 버튼으로 복귀하면 true
-    private var followMyLocation: Boolean = false
+    // 지도 시작 시 true로 시작 → 첫 위치에 자동 고정
+    private var followMyLocation: Boolean = true
 
     // 권한 요청 코드
     private val REQ_LOCATION = 1000
     private var isFirstLocation = true
+    private var isMapReady = false
     private lateinit var repo: LocationRepository
     private lateinit var auth: FirebaseAuth
-    private var lastUploadTime = 0L // 마지막 Firestore 업로드 시각(ms)
-
+    private var lastUploadTime = 0L
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -44,34 +49,59 @@ class MapFragment : Fragment(R.layout.fragment_map) {
         repo = LocationRepository()
         auth = FirebaseAuth.getInstance()
 
-
-        // 1) 지도 초기화 : 기본은 '자유 이동' 모드 (followMyLocation = false)
+        // 1) 지도 초기화
         tMapView = TMapView(requireContext()).apply {
             setSKTMapApiKey(BuildConfig.TMAP_API_KEY)
             setZoomLevel(15)
-            setIconVisibility(false)   // 처음엔 숨김 상태
-            setIconVisibility(true)    // 이제 안전하게 표시
+            setIconVisibility(true)
+
+            // 지도 초기화 완료 리스너
+            setOnMapReadyListener {
+                isMapReady = true
+                Log.d("MapFragment", "TMapView 초기화 완료")
+
+                // 이미 위치를 받았다면 지금 표시
+                lastLat?.let { lat ->
+                    lastLon?.let { lon ->
+                        try {
+                            setLocationPoint(lon, lat)
+                            if (followMyLocation) {
+                                setCenterPoint(lat, lon) // 위도, 경도 순서
+                            }
+                            Log.d("MapFragment", "지도 초기화 후 위치 설정 완료")
+                        } catch (e: Exception) {
+                            Log.e("MapFragment", "지도 초기화 후 위치 설정 실패", e)
+                        }
+                    }
+                }
+            }
         }
 
-        // fragment_map.xml 안의 컨테이너에 지도 뷰 붙이기
         val container = view.findViewById<FrameLayout>(R.id.tmap_container)
         container.addView(tMapView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        // 2) "내 위치로 복귀" 버튼(오른쪽 하단) 동적으로 추가
+        // 2) "내 위치로 복귀" 버튼
         val recenterBtn = ImageButton(requireContext()).apply {
-            setImageResource(R.drawable.my_location) // 적당한 아이콘 사용 (없으면 임시로 camera 아이콘 써도 됩니다)
-            background = ContextCompat.getDrawable(requireContext(), R.drawable.round_button_bg) // 둥근 배경(없으면 null 가능)
+            setImageResource(R.drawable.my_location)
+            background = ContextCompat.getDrawable(requireContext(), R.drawable.round_button_bg)
             setPadding((12 * resources.displayMetrics.density).toInt())
             contentDescription = "현위치로 이동"
             setOnClickListener {
-                // 버튼을 누르면 다시 '따라가기' 켜고 지도 중심 복귀
                 followMyLocation = true
                 lastLat?.let { lat ->
                     lastLon?.let { lon ->
-                        tMapView.setCenterPoint(lat, lon) // SDK 좌표 순서가 환경마다 다를 수 있어요. (아래 주석 참고)
+                        if (isMapReady) {
+                            try {
+                                tMapView.setCenterPoint(lat, lon) // 위도, 경도 순서
+                                tMapView.setZoomLevel(17)
+                                Log.d("MapFragment", "버튼 클릭: 현 위치로 이동 (lat=$lat, lon=$lon)")
+                            } catch (e: Exception) {
+                                Log.e("MapFragment", "버튼으로 위치 이동 실패", e)
+                            }
+                        }
                     }
                 }
             }
@@ -80,87 +110,158 @@ class MapFragment : Fragment(R.layout.fragment_map) {
         val btnSize = (48 * resources.displayMetrics.density).toInt()
         val margin = (16 * resources.displayMetrics.density).toInt()
         val btnParams = FrameLayout.LayoutParams(btnSize, btnSize).apply {
-            // 오른쪽-아래 정렬
             gravity = android.view.Gravity.END or android.view.Gravity.BOTTOM
             rightMargin = margin
             bottomMargin = margin
         }
         container.addView(recenterBtn, btnParams)
 
-        // 3) 지도에 손을 대면 '따라가기' 해제 (자유 이동 유지)
+        // 3) 지도 터치 시 자동 추적 해제
         tMapView.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
                 followMyLocation = false
+                Log.d("MapFragment", "지도 터치: 자동 추적 해제")
             }
             false
         }
 
-        // 4) GPS 초기화
-        gps = TMapGpsManager(requireContext()).apply {
-            minTime = 1000L       // 1초마다
-            minDistance = 5f      // 5m 이동마다
-            provider = TMapGpsManager.PROVIDER_GPS
+        // 4) Google Location Services 초기화
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext())
+
+        locationRequest = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            1000L
+        ).apply {
+            setMinUpdateDistanceMeters(5f)
+            setWaitForAccurateLocation(false)
+        }.build()
+
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                locationResult.lastLocation?.let { location ->
+                    val lat = location.latitude
+                    val lon = location.longitude
+
+                    Log.d("MapFragment", "위치 수신: lat=$lat, lon=$lon, isFirst=$isFirstLocation, follow=$followMyLocation, mapReady=$isMapReady")
+
+                    if (lat == 0.0 || lon == 0.0) return
+
+                    lastLat = lat
+                    lastLon = lon
+
+                    // 지도가 준비된 경우에만 위치 업데이트
+                    if (isMapReady) {
+                        try {
+                            // 내 위치 마커 표시
+                            tMapView.setLocationPoint(lon, lat)
+
+                            // 첫 위치 받았을 때 자동으로 지도 중심 이동
+                            if (isFirstLocation) {
+                                isFirstLocation = false
+                                tMapView.setCenterPoint(lat, lon) // 위도, 경도 순서
+                                followMyLocation = true
+                                Log.d("MapFragment", "첫 위치 설정 완료")
+                            }
+
+                            // 자동 추적 모드일 때 지도 중심 이동
+                            if (followMyLocation) {
+                                tMapView.setCenterPoint(lat, lon) // 위도, 경도 순서
+                            }
+                        } catch (e: Exception) {
+                            Log.e("MapFragment", "위치 업데이트 실패", e)
+                        }
+                    }
+
+                    // Firestore 업로드 (5초마다)
+                    val currentTime = System.currentTimeMillis()
+                    if (currentTime - lastUploadTime >= 5000) {
+                        val userId = auth.currentUser?.uid ?: "anonymous"
+                        repo.uploadLocation(userId, lat, lon)
+                        lastUploadTime = currentTime
+                    }
+                }
+            }
         }
 
-        // 5) 위치 권한 체크 후 시작
+        // 5) 권한 체크 후 위치 업데이트 시작
         if (hasLocationPermission()) {
-            startGps()
+            startLocationUpdates()
         } else {
             ActivityCompat.requestPermissions(
                 requireActivity(),
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
                 REQ_LOCATION
             )
         }
     }
 
-    private fun startGps() {
-        gps.openGps()
-        gps.setOnLocationChangeListener { location ->
-            val lat = location.latitude
-            val lon = location.longitude
-            if (lat == 0.0 || lon == 0.0) return@setOnLocationChangeListener
+    private fun startLocationUpdates() {
+        if (ActivityCompat.checkSelfPermission(
+                requireContext(),
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(
+                requireContext(),
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
 
-            // 내 위치 갱신
-            tMapView.setLocationPoint(lon, lat)
+        try {
+            fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                locationCallback,
+                Looper.getMainLooper()
+            )
+            Log.d("MapFragment", "위치 업데이트 시작")
+        } catch (e: Exception) {
+            Log.e("MapFragment", "위치 업데이트 시작 실패", e)
+        }
+    }
 
-            // ✅ 추가 부분: 앱 처음 실행 시 첫 좌표를 지도 중심으로 이동 이거왜안될까?왜?왜안되지?
-            if (isFirstLocation) {
-                isFirstLocation = false
-                tMapView.setCenterPoint(lon, lat)
-            }
-
-            // 기존 코드 그대로 유지
-            if (followMyLocation)
-                tMapView.setCenterPoint(lon, lat)
-
-            lastLat = lat
-            lastLon = lon
-
-            // Firestore 업로드 (5초마다)
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastUploadTime >= 5000) {
-                val userId = auth.currentUser?.uid ?: "anonymous"
-                repo.uploadLocation(userId, lat, lon)
-                lastUploadTime = currentTime
-            }
+    private fun stopLocationUpdates() {
+        try {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+            Log.d("MapFragment", "위치 업데이트 중지")
+        } catch (e: Exception) {
+            Log.e("MapFragment", "위치 업데이트 중지 실패", e)
         }
     }
 
     private fun hasLocationPermission(): Boolean {
-        val fine = ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
-        val coarse = ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION)
-        return fine == PackageManager.PERMISSION_GRANTED || coarse == PackageManager.PERMISSION_GRANTED
+        val fine = ActivityCompat.checkSelfPermission(
+            requireContext(),
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+        val coarse = ActivityCompat.checkSelfPermission(
+            requireContext(),
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        return fine == PackageManager.PERMISSION_GRANTED ||
+                coarse == PackageManager.PERMISSION_GRANTED
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (hasLocationPermission()) {
+            startLocationUpdates()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopLocationUpdates()
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
-        try {
-            gps.closeGps()
-        } catch (_: Exception) { /* no-op */ }
+        stopLocationUpdates()
     }
 
-    // 권한 응답 처리
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -172,7 +273,7 @@ class MapFragment : Fragment(R.layout.fragment_map) {
             grantResults.isNotEmpty() &&
             grantResults.any { it == PackageManager.PERMISSION_GRANTED }
         ) {
-            startGps()
+            startLocationUpdates()
         }
     }
 }
