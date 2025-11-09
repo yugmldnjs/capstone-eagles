@@ -15,5 +15,4 @@
 local.properties
 
 # Firebase Admin Key
-app/bicycle-blackbox-firebase-adminsdk-fbsvc-9f2061c69e.json
 app/google-services.json
