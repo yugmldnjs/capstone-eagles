@@ -17,6 +17,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.provider.MediaStore
+import android.util.Half.EPSILON
 import android.util.Log
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -37,12 +38,12 @@ import kotlin.math.*
 class RecordingService : Service(), LifecycleOwner, SensorEventListener {
 
     // 1. 콜백 인터페이스 정의
-    interface SensorCallback {
-        fun onSensorDataChanged(accelData: FloatArray,linearAccel: FloatArray)
-    }
+//    interface SensorCallback {
+//        fun onSensorDataChanged(accelData: FloatArray,linearAccel: FloatArray)
+//    }
 
     // 2. 콜백을 저장할 변수 추가 (메모리 누수 방지를 위해 WeakReference 사용)
-    private var sensorCallback: WeakReference<SensorCallback>? = null
+    //private var sensorCallback: WeakReference<SensorCallback>? = null
 
     private val lifecycleRegistry = LifecycleRegistry(this)
 
@@ -59,8 +60,12 @@ class RecordingService : Service(), LifecycleOwner, SensorEventListener {
     // 센서 관련
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null  // 가속도 센서
+    private var gyroscope: Sensor? = null      // 자이로스코프
     private val gravity = FloatArray(3)
     private val linearAccel = FloatArray(3)
+    private val NS2S = 1.0f / 1000000000.0f
+    private val deltaRotationVector = FloatArray(4)
+    private var timestamp: Float = 0f
 
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
@@ -79,6 +84,7 @@ class RecordingService : Service(), LifecycleOwner, SensorEventListener {
         // SensorManager 초기화 및 리스너 등록
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
@@ -264,12 +270,17 @@ class RecordingService : Service(), LifecycleOwner, SensorEventListener {
             recording = null
         }
         accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
+        gyroscope?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        LogToFileHelper.startLogging(this, "SensorLog")
     }
 
     fun stopRecording() {
         Log.d(TAG, "stopRecording() called")
+        LogToFileHelper.stopLogging()
 
         val currentRecording = recording
         if (currentRecording == null) {
@@ -311,24 +322,24 @@ class RecordingService : Service(), LifecycleOwner, SensorEventListener {
         }
     }
 
-    // 가속도 센서 변화시
+    // 센서 변화시
     override fun onSensorChanged(event: SensorEvent?) {
         event?.let {
             if (it.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-                // MainActivity의 onSensorChanged 로직을 그대로 가져옵니다.
+                // 중력 계산
                 gravity[0] = ALPHA * gravity[0] + (1 - ALPHA) * it.values[0]
                 gravity[1] = ALPHA * gravity[1] + (1 - ALPHA) * it.values[1]
                 gravity[2] = ALPHA * gravity[2] + (1 - ALPHA) * it.values[2]
 
-                // 순수 가속도
+                // 선형 가속도
                 linearAccel[0] = it.values[0] - gravity[0]
                 linearAccel[1] = it.values[1] - gravity[1]
                 linearAccel[2] = it.values[2] - gravity[2]
 
-                // 총 가속도의 크기
+                // 총 가속도 크기
                 val totalAccel = sqrt(linearAccel[0]*linearAccel[0] + linearAccel[1]*linearAccel[1] + linearAccel[2]*linearAccel[2])
 
-                sensorCallback?.get()?.onSensorDataChanged(it.values, linearAccel)
+                //sensorCallback?.get()?.onSensorDataChanged(it.values, linearAccel)
 
                 // 로그 출력
                 Log.d(TAG, "원본 - X: %.2f, Y: %.2f, Z: %.2f".format(it.values[0], it.values[1], it.values[2]))
@@ -339,41 +350,75 @@ class RecordingService : Service(), LifecycleOwner, SensorEventListener {
                     TAG, "순수 가속도 - X: %.2f, Y: %.2f, Z: %.2f"
                     .format(linearAccel[0], linearAccel[1], linearAccel[2]))
                 Log.d(TAG, "총 가속도: %.2f".format(totalAccel))
+                // 로그파일에 쓰기
+                val accelLog = "ACC - X: %.2f, Y: %.2f, Z: %.2f | Total: %.2f".format(
+                    linearAccel[0], linearAccel[1], linearAccel[2], totalAccel
+                )
+                LogToFileHelper.writeLog(accelLog)
 
-                if(totalAccel > 4.0 ){
+                // 충격 감지
+                if(totalAccel > 10.0 ){
                     val absLinearAccel = linearAccel.map { abs(it) }
                     val maxIndex = absLinearAccel.indexOf(absLinearAccel.maxOrNull())
                     val minIndex = absLinearAccel.indexOf(absLinearAccel.minOrNull())
 
-                    if ( maxIndex == 2 && linearAccel[maxIndex] > 0) {
+                    // 급제동 감지
+                    if(maxIndex == 2 && linearAccel[maxIndex] < 0) {
                         Log.d(TAG, "z: %.2f".format(linearAccel[maxIndex]))
-                    }
-                    if(minIndex == 2){
-                        Log.d(TAG, "z: %.2f".format(linearAccel[minIndex]))
+                        val crashLog = "crash - X: %.2f, Y: %.2f, Z: %.2f | Total: %.2f".format(
+                            linearAccel[0], linearAccel[1], linearAccel[2], totalAccel
+                        )
+                        LogToFileHelper.writeLog(crashLog)
                     }
                 }
                 Log.d(TAG, "---")
 
+            } else if(it.sensor.type == Sensor.TYPE_GYROSCOPE) {
+                // This timestep's delta rotation to be multiplied by the current rotation
+                // after computing it from the gyro sample data.
 
-                /* 충격 감지 시 동작*/
-                // 급제동 감지
+                val dT = (event.timestamp - timestamp) * NS2S
+                // Axis of the rotation sample, not normalized yet.
+                var axisX: Float = it.values[0]
+                var axisY: Float = it.values[1]
+                var axisZ: Float = it.values[2]
+                // 각속도 로그 출력 (디버깅용)
+                Log.d(
+                    TAG,
+                    "자이로 - X(Roll): %.2f, Y(Pitch): %.2f, Z(Yaw): %.2f".format(axisX, axisY, axisZ)
+                )
+                // 로그 파일에 쓰기
+                val gyroLog = "GYRO - X: %.2f, Y: %.2f, Z: %.2f".format(axisX, axisY, axisZ)
+                LogToFileHelper.writeLog(gyroLog)
 
+                // 넘어짐 감지를 위한 임계값 (실제 테스트를 통해 조절 필요)
+                // 일반적으로 자전거가 옆으로 넘어질 때 X축(Roll) 회전이 가장 큽니다.
+                val fallThreshold = 2.5f // 예: 2.5 rad/s 이상으로 빠르게 회전하면 낙차로 판단
+
+                // X축(Roll) 각속도의 절대값이 임계값을 초과하는지 확인
+                if (abs(axisX) > fallThreshold) {
+                    Log.w(TAG, "!!! 낙차 감지 (넘어짐) !!! - X축 회전 속도: %.2f".format(axisX))
+
+                    // TODO: 여기에 낙차 감지 시 수행할 동작을 구현합니다.
+                    // 예: 1. 별도의 이벤트 영상으로 저장하는 로직 호출
+                    //    2. 서버로 긴급 알림 전송
+                    //    3. MainActivity2로 브로드캐스트 전송하여 UI에 표시
+                }
 
             }
+
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        Log.d(TAG, "센서 정확도 변경: $accuracy")
-    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
-    fun setSensorCallback(callback: SensorCallback?) {
-        sensorCallback = if (callback != null) {
-            WeakReference(callback)
-        } else {
-            null
-        }
-    }
+//    fun setSensorCallback(callback: SensorCallback?) {
+//        sensorCallback = if (callback != null) {
+//            WeakReference(callback)
+//        } else {
+//            null
+//        }
+//    }
 
     private fun createNotification(contentText: String) =
         NotificationCompat.Builder(this, CHANNEL_ID)
