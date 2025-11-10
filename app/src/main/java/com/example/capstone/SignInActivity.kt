@@ -9,11 +9,13 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.example.capstone.databinding.ActivitySignInBinding
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import android.text.method.PasswordTransformationMethod
 
 class SignInActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySignInBinding
     private lateinit var auth: FirebaseAuth
+    private lateinit var db: FirebaseFirestore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,6 +26,7 @@ class SignInActivity : AppCompatActivity() {
 
         // Firebase Auth 초기화
         auth = FirebaseAuth.getInstance()
+        db = FirebaseFirestore.getInstance()
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.main) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -44,14 +47,33 @@ class SignInActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            // Firebase에 회원가입 요청
+            // Firebase Auth 회원가입 요청
             auth.createUserWithEmailAndPassword(email, password)
                 .addOnCompleteListener(this) { task ->
                     if (task.isSuccessful) {
-                        Toast.makeText(this, "회원가입 성공! 자동 로그인 중...", Toast.LENGTH_SHORT).show()
-                        // 로그인 화면으로 이동
-                        startActivity(Intent(this, LogInActivity::class.java))
-                        finish()
+                        val user = auth.currentUser
+                        if (user != null) {
+                            // Firestore에 유저 정보 저장
+                            val userData = hashMapOf(
+                                "uid" to user.uid,
+                                "email" to email,
+                                "createdAt" to System.currentTimeMillis()
+                            )
+
+                            // users 컬렉션에 uid를 문서 ID로 사용
+                            db.collection("users").document(user.uid)
+                                .set(userData)
+                                .addOnSuccessListener {
+                                    Toast.makeText(this, "회원가입 성공! 자동 로그인 중...", Toast.LENGTH_SHORT).show()
+
+                                    // 로그인 화면으로 이동
+                                    startActivity(Intent(this, LogInActivity::class.java))
+                                    finish()
+                                }
+                                .addOnFailureListener { e ->
+                                    Toast.makeText(this, "DB 저장 실패: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                        }
                     } else {
                         val error = task.exception?.message ?: "회원가입 실패"
                         Toast.makeText(this, "회원가입 실패: $error", Toast.LENGTH_LONG).show()
