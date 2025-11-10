@@ -104,9 +104,6 @@ class MapFragment : Fragment(R.layout.fragment_map) {
 
                 // ✅ 지도 준비 완료 후 혼잡도 리스너 시작
                 startCongestionListener()
-
-                // ✅ 테스트: 간단한 빨간 원 1개만 그려보기
-                testDrawSimpleCircle()
             }
         }
 
@@ -303,35 +300,18 @@ class MapFragment : Fragment(R.layout.fragment_map) {
             }
             clusterCircles.clear()
 
-            // ✅ 테스트용 더미 데이터 추가 (실제 배포 시 제거)
-            val testLocations = createDummyLocations()
-            val allLocations = locations + testLocations
+            // ✅ 더미 데이터 제거: 실제 Firestore 데이터만 사용
+            val allLocations = locations
 
-            Log.d(TAG, "실제 사용자: ${locations.size}개, 더미: ${testLocations.size}개, 총: ${allLocations.size}개")
+            Log.d(TAG, "실제 사용자 위치 ${allLocations.size}개로 혼잡도 계산")
 
             // 새로운 클러스터 생성
             val clusters = CongestionCalculator.createClusters(allLocations, radiusMeters = 100.0)
 
             Log.d(TAG, "생성된 클러스터: ${clusters.size}개")
 
-            // ✅ TMapCircle로 시도 (실패하면 Polyline 사용)
-            var usePolyline = false
-
-            // 클러스터를 지도에 표시
             clusters.forEachIndexed { index, cluster ->
-                if (usePolyline) {
-                    // Polyline 방식
-                    drawClusterWithPolyline(cluster, index)
-                } else {
-                    // TMapCircle 방식 (기존)
-                    drawClusterOnMap(cluster, index)
-                }
-            }
-
-            // ✅ 추가: Polyline 방식도 함께 시도 (디버깅용)
-            if (clusters.isNotEmpty()) {
-                Log.d(TAG, "🟣 Polyline 방식으로도 첫 번째 클러스터 그려보기...")
-                drawClusterWithPolyline(clusters[0], 99)  // index 99로 구분
+                drawClusterOnMap(cluster, index)
             }
 
         } catch (e: Exception) {
@@ -339,72 +319,6 @@ class MapFragment : Fragment(R.layout.fragment_map) {
         }
     }
 
-    /**
-     * ✅ Polyline으로 클러스터 그리기 (대안)
-     */
-    private fun drawClusterWithPolyline(cluster: CongestionCluster, index: Int) {
-        try {
-            val circleId = "poly_cluster_$index"
-
-            Log.d(TAG, "🟣 Polyline 클러스터 생성: $circleId, 좌표=(${cluster.centerLat}, ${cluster.centerLon})")
-
-            drawCircleWithPolyline(
-                cluster.centerLat,
-                cluster.centerLon,
-                100.0,  // 100m 반경
-                circleId,
-                cluster.level.color
-            )
-
-            clusterCircles.add(circleId)
-            Log.d(TAG, "🟣 Polyline 클러스터 표시 완료: $circleId")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "🟣 Polyline 클러스터 실패: index=$index", e)
-        }
-    }
-
-    /**
-     * ✅ 테스트용 더미 위치 데이터 생성
-     * 실제 배포 시 이 함수와 호출 부분을 제거하세요!
-     */
-    private fun createDummyLocations(): List<LocationData> {
-        // ✅ GPS 위치가 없어도 동작하도록 고정 좌표 사용
-        // 서울시청 좌표: 37.5665, 126.9780
-        val baseLat = lastLat ?: 37.5665  // GPS 없으면 서울시청
-        val baseLon = lastLon ?: 126.9780
-
-        val dummyList = mutableListOf<LocationData>()
-        val now = System.currentTimeMillis()
-
-        Log.d(TAG, "더미 데이터 기준 위치: lat=$baseLat, lon=$baseLon")
-
-        // 그룹 1: 현재 위치 근처 50m 이내 3명 -> 노란 원
-        dummyList.add(LocationData("dummy_near_1", baseLat + 0.0003, baseLon + 0.0003, now))
-        dummyList.add(LocationData("dummy_near_2", baseLat + 0.0002, baseLon - 0.0002, now))
-        dummyList.add(LocationData("dummy_near_3", baseLat - 0.0002, baseLon + 0.0001, now))
-
-        // 그룹 2: 200m 북쪽에 6명 -> 빨간 원
-        dummyList.add(LocationData("dummy_north_1", baseLat + 0.0018, baseLon, now))
-        dummyList.add(LocationData("dummy_north_2", baseLat + 0.0019, baseLon + 0.0001, now))
-        dummyList.add(LocationData("dummy_north_3", baseLat + 0.0017, baseLon - 0.0001, now))
-        dummyList.add(LocationData("dummy_north_4", baseLat + 0.0018, baseLon + 0.0002, now))
-        dummyList.add(LocationData("dummy_north_5", baseLat + 0.0020, baseLon, now))
-        dummyList.add(LocationData("dummy_north_6", baseLat + 0.0019, baseLon - 0.0002, now))
-
-        // 그룹 3: 300m 남쪽에 2명 -> 노란 원
-        dummyList.add(LocationData("dummy_south_1", baseLat - 0.0027, baseLon + 0.0001, now))
-        dummyList.add(LocationData("dummy_south_2", baseLat - 0.0028, baseLon - 0.0001, now))
-
-        // 그룹 4: 400m 동쪽에 4명 -> 노란 원
-        dummyList.add(LocationData("dummy_east_1", baseLat + 0.0001, baseLon + 0.0036, now))
-        dummyList.add(LocationData("dummy_east_2", baseLat, baseLon + 0.0037, now))
-        dummyList.add(LocationData("dummy_east_3", baseLat - 0.0001, baseLon + 0.0035, now))
-        dummyList.add(LocationData("dummy_east_4", baseLat + 0.0002, baseLon + 0.0038, now))
-
-        Log.d(TAG, "더미 데이터 생성 완료: ${dummyList.size}개")
-        return dummyList
-    }
 
     /**
      * ✅ 클러스터를 지도에 원형으로 표시
@@ -414,40 +328,27 @@ class MapFragment : Fragment(R.layout.fragment_map) {
             val circleId = "cluster_$index"
             val point = TMapPoint(cluster.centerLat, cluster.centerLon)
 
-            Log.d(TAG, "원 생성 시작: $circleId, 좌표=(${cluster.centerLat}, ${cluster.centerLon}), 인원=${cluster.userCount}")
-
-            // ✅ 공식 문서 방식대로 수정
-            val circle = TMapCircle()
-            circle.setId(circleId)
-            circle.setCenterPoint(point)
-            circle.setRadius(100.0)  // 100m
-            circle.setLineColor(cluster.level.color)
-            circle.setAreaColor(cluster.level.color)
-            circle.setAreaAlpha(200)  // 0-255 범위, 더 불투명하게
-            circle.setLineAlpha(255)  // 불투명
-            circle.setCircleWidth(10f)  // 더 두껍게
-            circle.setRadiusVisible(false)  // 반지름 텍스트 숨김
-
-            Log.d(TAG, "원 속성 설정 완료: radius=100.0, lineColor=${cluster.level.color}, areaColor=${cluster.level.color}")
-
-            Log.d(TAG, "원 객체 생성 완료, 지도에 추가 시도...")
-
-            try {
-                tMapView.addTMapCircle(circle)
-                Log.d(TAG, "✅ 원 추가 성공: $circleId")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ 원 추가 실패: $circleId", e)
-                throw e
+            val circle = TMapCircle().apply {
+                setId(circleId)
+                setCenterPoint(point)
+                setRadius(100.0)
+                setLineColor(cluster.level.color)
+                setAreaColor(cluster.level.color)
+                setAreaAlpha(140)  // ✅ 면 투명도 (0~255, 중간 밝기)
+                setLineAlpha(220)  // ✅ 선 불투명도 (살짝 투명)
+                setCircleWidth(6f) // ✅ 선 굵기 적당히
+                setRadiusVisible(false)
             }
 
+            tMapView.addTMapCircle(circle)
             clusterCircles.add(circleId)
+            Log.d(TAG, "✅ 혼잡도 원 추가: $circleId")
 
-            Log.d(TAG, "클러스터 표시 완료: ID=$circleId, 사용자=${cluster.userCount}명, 레벨=${cluster.level.displayName}")
         } catch (e: Exception) {
             Log.e(TAG, "클러스터 그리기 실패: index=$index", e)
-            e.printStackTrace()
         }
     }
+
 
     /**
      * 색상에 투명도 추가
@@ -460,75 +361,6 @@ class MapFragment : Fragment(R.layout.fragment_map) {
             Color.green(color),
             Color.blue(color)
         )
-    }
-
-    /**
-     * ✅ 테스트: 간단한 원 1개만 그려보기
-     * 현재 위치(또는 서울시청)에 빨간 원 1개
-     */
-    private fun testDrawSimpleCircle() {
-        try {
-            val testLat = lastLat ?: 37.5665
-            val testLon = lastLon ?: 126.9780
-
-            Log.d(TAG, "🔴 테스트 원 그리기 시작: lat=$testLat, lon=$testLon")
-
-            try {
-                val point = TMapPoint(testLat, testLon)
-
-                // ✅ 공식 API 방식으로 수정
-                val circle = TMapCircle()
-                circle.setId("test_circle")
-                circle.setCenterPoint(point)
-                circle.setRadius(200.0)  // 200m
-                circle.setLineColor(Color.RED)
-                circle.setAreaColor(Color.RED)
-                circle.setAreaAlpha(200)  // 0-255 범위
-                circle.setLineAlpha(255)  // 불투명
-                circle.setCircleWidth(10f)  // 두껍게
-                circle.setRadiusVisible(false)
-
-                Log.d(TAG, "🔴 테스트 원 객체 생성 완료, 지도에 추가 시도...")
-                tMapView.addTMapCircle(circle)
-                Log.d(TAG, "🔴 ✅ 테스트 원(TMapCircle) 추가 성공!")
-            } catch (e: Exception) {
-                Log.e(TAG, "🔴 ❌ TMapCircle 실패, TMapPolyline으로 시도...", e)
-                e.printStackTrace()
-
-                // 방법 2: TMapPolyline으로 원 그리기
-                drawCircleWithPolyline(testLat, testLon, 200.0, "test_polyline_circle", Color.RED)
-            }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "🔴 ❌ 모든 테스트 원 추가 실패!", e)
-            e.printStackTrace()
-        }
-    }
-
-    /**
-     * ✅ TMapPolyline을 사용해서 원 그리기 (대안)
-     */
-    private fun drawCircleWithPolyline(centerLat: Double, centerLon: Double, radiusMeters: Double, id: String, color: Int) {
-
-        Log.d(TAG, "🟣 Polyline으로 원 그리기 시작: $id")
-
-        // 원의 둘레를 따라 점들 생성 (36개 점 = 10도 간격)
-        val points = mutableListOf<TMapPoint>()
-        val numPoints = 36
-        val earthRadius = 6371000.0 // 지구 반경 (미터)
-
-        for (i in 0..numPoints) {
-            val angle = (i * 360.0 / numPoints) * Math.PI / 180.0
-
-            // 위도/경도 오프셋 계산
-            val dLat = (radiusMeters / earthRadius) * (180.0 / Math.PI)
-            val dLon = (radiusMeters / (earthRadius * Math.cos(Math.toRadians(centerLat)))) * (180.0 / Math.PI)
-
-            val pointLat = centerLat + dLat * Math.sin(angle)
-            val pointLon = centerLon + dLon * Math.cos(angle)
-
-            points.add(TMapPoint(pointLat, pointLon))
-        }
     }
 
     private fun startLocationUpdates() {
