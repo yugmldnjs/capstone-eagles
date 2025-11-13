@@ -3,6 +3,7 @@ package com.example.capstone
 import android.content.Context
 import android.content.Intent
 import android.util.AttributeSet
+import androidx.fragment.app.FragmentActivity
 import androidx.preference.Preference
 import androidx.preference.PreferenceViewHolder
 import com.example.capstone.databinding.SettingTopBinding
@@ -14,11 +15,19 @@ class line_delete(context: Context, attrs: AttributeSet?) : Preference(context, 
         super.onBindViewHolder(holder)
         holder.isDividerAllowedBelow = false
 
-        // 설정 창에서 뒤로가기 버튼 눌렀을 때 메인 카메라 화면으로 되돌아가게함
         val binding = SettingTopBinding.bind(holder.itemView)
+
+        // 설정 탭이 액티비티가 아니라 프래그먼트라서 intent 말고 이렇게 코드 작성함.
         binding.settingBackBtn.setOnClickListener {
-            val intent = Intent(context, MainActivity2::class.java)
-            context.startActivity(intent)
+            val activity = context as? FragmentActivity
+
+            // 프래그먼트 뒤로가기 실행 (스택에서 하나 꺼내기)
+            if (activity != null && activity.supportFragmentManager.backStackEntryCount > 0) {
+                activity.supportFragmentManager.popBackStack()
+            } else {
+                activity?.finish()
+
+            }
         }
     }
 }

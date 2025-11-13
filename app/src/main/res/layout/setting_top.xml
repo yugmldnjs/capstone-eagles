@@ -21,7 +21,7 @@
 
         <TextView
             android:layout_marginTop="10dp"
-            android:layout_marginStart="137dp"
+            android:layout_marginStart="127dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="설정"
