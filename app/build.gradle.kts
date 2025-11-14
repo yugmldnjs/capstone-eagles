@@ -27,6 +27,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "TMAP_API_KEY", "\"${getTmapApiKey()}\"")
+        manifestPlaceholders["NAVER_MAP_CLIENT_ID"] = getNaverMapClientId()
     }
 
     buildTypes {
@@ -86,6 +87,9 @@ dependencies {
     implementation(files("libs/vsm-tmap-sdk-v2-android-1.7.45.aar"))
 
     implementation("com.google.android.gms:play-services-location:21.0.1")
+
+    // 네이버 지도 SDK
+    implementation("com.naver.maps:map-sdk:3.23.0")
 }
 
 // Tmap 앱키 안전하게 읽기
@@ -98,4 +102,13 @@ fun getTmapApiKey(): String {
     return properties.getProperty("TMAP_API_KEY", "")
 }
 
-apply(plugin = "com.google.gms.google-services")
+fun getNaverMapClientId(): String {
+    val properties = Properties()
+    val localPropsFile = rootProject.file("local.properties")
+
+    if (localPropsFile.exists()) {
+        FileInputStream(localPropsFile).use { properties.load(it) }
+    }
+
+    return properties.getProperty("NAVER_MAP_CLIENT_ID", "")
+}

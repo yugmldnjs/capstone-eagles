@@ -115,7 +115,7 @@ object CongestionCalculator {
         targetLat: Double,
         targetLon: Double,
         locations: List<LocationData>,
-        radiusMeters: Double = 100.0
+        radiusMeters: Double = 150.0
     ): CongestionLevel {
         val nearbyCount = locations.count { location ->
             calculateDistance(

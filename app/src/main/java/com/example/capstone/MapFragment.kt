@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.Looper
 import android.util.Log
-import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -15,9 +14,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.setPadding
 import androidx.fragment.app.Fragment
 import com.google.android.gms.location.*
-import com.skt.tmap.TMapView
-import com.skt.tmap.TMapPoint
-import com.skt.tmap.overlay.TMapCircle
+import com.naver.maps.geometry.LatLng
+import com.naver.maps.map.*
+import com.naver.maps.map.overlay.CircleOverlay
 import com.example.capstone.data.LocationRepository
 import com.example.capstone.data.LocationData
 import com.example.capstone.utils.CongestionCalculator
@@ -27,9 +26,10 @@ import com.google.firebase.firestore.ListenerRegistration
 import kotlin.math.*
 
 
-class MapFragment : Fragment(R.layout.fragment_map) {
+class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
-    private lateinit var tMapView: TMapView
+    private lateinit var naverMap: NaverMap
+    private lateinit var mapView: MapView
 
     // Google Location Services
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -48,6 +48,9 @@ class MapFragment : Fragment(R.layout.fragment_map) {
     // 지도 시작 시 true로 시작 → 첫 위치에 자동 고정
     private var followMyLocation: Boolean = true
 
+    // ✅ 프로그래밍 방식 카메라 이동 플래그
+    private var isProgrammaticMove = false
+
     // 권한 요청 코드
     private val REQ_LOCATION = 1000
     private var isFirstLocation = true
@@ -57,7 +60,7 @@ class MapFragment : Fragment(R.layout.fragment_map) {
 
     // ✅ 혼잡도 관련 변수
     private var locationListener: ListenerRegistration? = null
-    private val clusterCircles = mutableListOf<String>() // 원형 오버레이 ID 저장
+    private val clusterCircles = mutableListOf<CircleOverlay>() // 원형 오버레이 저장
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -65,57 +68,19 @@ class MapFragment : Fragment(R.layout.fragment_map) {
         repo = LocationRepository()
         auth = FirebaseAuth.getInstance()
 
-        // 1) 지도 초기화
-        tMapView = TMapView(requireContext()).apply {
-            setSKTMapApiKey(BuildConfig.TMAP_API_KEY)
-            setZoomLevel(15)
-            setIconVisibility(true)
+        // 1) 네이버 맵 초기화
+        mapView = view.findViewById(R.id.map_view)
+        mapView.onCreate(savedInstanceState)
+        mapView.getMapAsync(this)
 
-            // 지도 초기화 완료 리스너
-            setOnMapReadyListener {
-                isMapReady = true
-                Log.d(TAG, "TMapView 초기화 완료")
+        // 2) 커스텀 현위치 버튼
+        val container = view.findViewById<FrameLayout>(R.id.map_container)
+        val btnSize = (48 * resources.displayMetrics.density).toInt()
+        val margin = (16 * resources.displayMetrics.density).toInt()
 
-                // ✅ 테스트용: GPS 없어도 지도가 서울시청으로 이동
-                val defaultLat = 37.5665
-                val defaultLon = 126.9780
-
-                try {
-                    // 이미 위치를 받았다면 그 위치로, 아니면 서울시청으로
-                    val targetLat = lastLat ?: defaultLat
-                    val targetLon = lastLon ?: defaultLon
-
-                    setCenterPoint(targetLat, targetLon)
-                    Log.d(TAG, "지도 중심 설정: lat=$targetLat, lon=$targetLon")
-
-                    // 내 위치가 있으면 마커도 표시
-                    lastLat?.let { lat ->
-                        lastLon?.let { lon ->
-                            setLocationPoint(lon, lat)
-                            if (followMyLocation) {
-                                setCenterPoint(lat, lon)
-                            }
-                            Log.d(TAG, "지도 초기화 후 위치 설정 완료")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "지도 초기화 후 위치 설정 실패", e)
-                }
-
-                // ✅ 지도 준비 완료 후 혼잡도 리스너 시작
-                startCongestionListener()
-            }
-        }
-
-        val container = view.findViewById<FrameLayout>(R.id.tmap_container)
-        container.addView(tMapView, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ))
-
-        // 2) "내 위치로 복귀" 버튼
+        // ✅ 현위치 버튼 (오른쪽 아래)
         val recenterBtn = ImageButton(requireContext()).apply {
-            setImageResource(R.drawable.my_location)
+            setImageResource(android.R.drawable.ic_menu_mylocation)
             background = ContextCompat.getDrawable(requireContext(), R.drawable.round_button_bg)
             setPadding((12 * resources.displayMetrics.density).toInt())
             contentDescription = "현위치로 이동"
@@ -125,8 +90,11 @@ class MapFragment : Fragment(R.layout.fragment_map) {
                     lastLon?.let { lon ->
                         if (isMapReady) {
                             try {
-                                tMapView.setCenterPoint(lat, lon)
-                                tMapView.setZoomLevel(17)
+                                isProgrammaticMove = true
+                                val cameraPosition = CameraPosition(LatLng(lat, lon), 17.0)
+                                val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+                                    .animate(CameraAnimation.Easing)
+                                naverMap.moveCamera(cameraUpdate)
                                 Log.d(TAG, "버튼 클릭: 현 위치로 이동 (lat=$lat, lon=$lon)")
                             } catch (e: Exception) {
                                 Log.e(TAG, "버튼으로 위치 이동 실패", e)
@@ -137,25 +105,14 @@ class MapFragment : Fragment(R.layout.fragment_map) {
             }
         }
 
-        val btnSize = (48 * resources.displayMetrics.density).toInt()
-        val margin = (16 * resources.displayMetrics.density).toInt()
-        val btnParams = FrameLayout.LayoutParams(btnSize, btnSize).apply {
+        val recenterParams = FrameLayout.LayoutParams(btnSize, btnSize).apply {
             gravity = android.view.Gravity.END or android.view.Gravity.BOTTOM
             rightMargin = margin
             bottomMargin = margin
         }
-        container.addView(recenterBtn, btnParams)
+        container.addView(recenterBtn, recenterParams)
 
-        // 3) 지도 터치 시 자동 추적 해제
-        tMapView.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
-                followMyLocation = false
-                Log.d(TAG, "지도 터치: 자동 추적 해제")
-            }
-            false
-        }
-
-        // 4) Google Location Services 초기화
+        // 3) Google Location Services 초기화
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext())
 
         locationRequest = LocationRequest.Builder(
@@ -181,19 +138,25 @@ class MapFragment : Fragment(R.layout.fragment_map) {
                     if (isMapReady) {
                         try {
                             // 내 위치 마커 표시
-                            tMapView.setLocationPoint(lon, lat)
+                            updateMyLocationMarker(lat, lon)
 
                             // 첫 위치 받았을 때 자동으로 지도 중심 이동
                             if (isFirstLocation) {
                                 isFirstLocation = false
-                                tMapView.setCenterPoint(lat, lon)
+                                isProgrammaticMove = true
+                                val cameraPosition = CameraPosition(LatLng(lat, lon), 15.0)
+                                val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+                                naverMap.moveCamera(cameraUpdate)
                                 followMyLocation = true
                                 Log.d(TAG, "첫 위치 설정 완료")
                             }
 
                             // 자동 추적 모드일 때 지도 중심 이동
                             if (followMyLocation) {
-                                tMapView.setCenterPoint(lat, lon)
+                                isProgrammaticMove = true
+                                val cameraUpdate = CameraUpdate.scrollTo(LatLng(lat, lon))
+                                    .animate(CameraAnimation.Easing)
+                                naverMap.moveCamera(cameraUpdate)
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "위치 업데이트 실패", e)
@@ -206,7 +169,7 @@ class MapFragment : Fragment(R.layout.fragment_map) {
             }
         }
 
-        // 5) 권한 체크 후 위치 업데이트 시작
+        // 4) 권한 체크 후 위치 업데이트 시작
         if (hasLocationPermission()) {
             startLocationUpdates()
         } else {
@@ -218,6 +181,83 @@ class MapFragment : Fragment(R.layout.fragment_map) {
                 ),
                 REQ_LOCATION
             )
+        }
+    }
+
+    override fun onMapReady(map: NaverMap) {
+        naverMap = map
+        isMapReady = true
+        Log.d(TAG, "NaverMap 초기화 완료")
+
+        // 지도 설정
+        naverMap.apply {
+            // 줌 레벨 설정
+            minZoom = 5.0
+            maxZoom = 18.0
+
+            // ✅ 네이버 지도 기본 현위치 오버레이 활성화
+            locationOverlay.isVisible = true
+
+            // 초기 카메라 위치 (서울시청)
+            val defaultLat = 37.5665
+            val defaultLon = 126.9780
+
+            val targetLat = lastLat ?: defaultLat
+            val targetLon = lastLon ?: defaultLon
+
+            // ✅ CameraPosition 사용
+            isProgrammaticMove = true
+            val cameraPosition = CameraPosition(LatLng(targetLat, targetLon), 15.0)
+            val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+            moveCamera(cameraUpdate)
+
+            // ✅ UI 설정
+            uiSettings.apply {
+                isCompassEnabled = true // 기본 나침반 사용
+                isScaleBarEnabled = true // 축척바
+                isZoomControlEnabled = true // 줌 컨트롤
+                isLocationButtonEnabled = false // 커스텀 현위치 버튼 사용
+            }
+
+            // ✅ 지도 터치 시 자동 추적 해제
+            addOnCameraChangeListener { _, _ ->
+                // 프로그래밍 방식 이동이 아니면 사용자가 터치한 것
+                if (!isProgrammaticMove && followMyLocation) {
+                    followMyLocation = false
+                    Log.d(TAG, "지도 터치: 자동 추적 해제")
+                }
+                isProgrammaticMove = false
+            }
+        }
+
+        // 내 위치가 있으면 오버레이 위치 설정
+        lastLat?.let { lat ->
+            lastLon?.let { lon ->
+                updateMyLocationMarker(lat, lon)
+                if (followMyLocation) {
+                    isProgrammaticMove = true
+                    val cameraUpdate = CameraUpdate.scrollTo(LatLng(lat, lon))
+                    naverMap.moveCamera(cameraUpdate)
+                }
+                Log.d(TAG, "지도 초기화 후 위치 설정 완료")
+            }
+        }
+
+        // ✅ 지도 준비 완료 후 혼잡도 리스너 시작
+        startCongestionListener()
+    }
+
+    /**
+     * ✅ 네이버 지도 기본 현위치 오버레이 업데이트
+     */
+    private fun updateMyLocationMarker(lat: Double, lon: Double) {
+        try {
+            naverMap.locationOverlay.apply {
+                position = LatLng(lat, lon)
+                isVisible = true
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "내 위치 오버레이 업데이트 실패", e)
         }
     }
 
@@ -291,23 +331,20 @@ class MapFragment : Fragment(R.layout.fragment_map) {
 
         try {
             // 기존 클러스터 원형 제거
-            clusterCircles.forEach { id ->
+            clusterCircles.forEach { circle ->
                 try {
-                    tMapView.removeTMapCircle(id)
+                    circle.map = null
                 } catch (e: Exception) {
-                    Log.w(TAG, "원형 제거 실패: $id", e)
+                    Log.w(TAG, "원형 제거 실패", e)
                 }
             }
             clusterCircles.clear()
 
-            // ✅ 더미 데이터 제거: 실제 Firestore 데이터만 사용
             val allLocations = locations
-
             Log.d(TAG, "실제 사용자 위치 ${allLocations.size}개로 혼잡도 계산")
 
             // 새로운 클러스터 생성
             val clusters = CongestionCalculator.createClusters(allLocations, radiusMeters = 100.0)
-
             Log.d(TAG, "생성된 클러스터: ${clusters.size}개")
 
             clusters.forEachIndexed { index, cluster ->
@@ -319,36 +356,27 @@ class MapFragment : Fragment(R.layout.fragment_map) {
         }
     }
 
-
     /**
      * ✅ 클러스터를 지도에 원형으로 표시
      */
     private fun drawClusterOnMap(cluster: CongestionCluster, index: Int) {
         try {
-            val circleId = "cluster_$index"
-            val point = TMapPoint(cluster.centerLat, cluster.centerLon)
-
-            val circle = TMapCircle().apply {
-                setId(circleId)
-                setCenterPoint(point)
-                setRadius(100.0)
-                setLineColor(cluster.level.color)
-                setAreaColor(cluster.level.color)
-                setAreaAlpha(140)  // ✅ 면 투명도 (0~255, 중간 밝기)
-                setLineAlpha(220)  // ✅ 선 불투명도 (살짝 투명)
-                setCircleWidth(6f) // ✅ 선 굵기 적당히
-                setRadiusVisible(false)
+            val circle = CircleOverlay().apply {
+                center = LatLng(cluster.centerLat, cluster.centerLon)
+                radius = 150.0
+                color = addAlphaToColor(cluster.level.color, 0.55f) // 면 색상 (투명도 55%)
+                outlineColor = addAlphaToColor(cluster.level.color, 0.86f) // 선 색상 (투명도 86%)
+                outlineWidth = 6
+                map = naverMap
             }
 
-            tMapView.addTMapCircle(circle)
-            clusterCircles.add(circleId)
-            Log.d(TAG, "✅ 혼잡도 원 추가: $circleId")
+            clusterCircles.add(circle)
+            Log.d(TAG, "✅ 혼잡도 원 추가: cluster_$index")
 
         } catch (e: Exception) {
             Log.e(TAG, "클러스터 그리기 실패: index=$index", e)
         }
     }
-
 
     /**
      * 색상에 투명도 추가
@@ -410,8 +438,15 @@ class MapFragment : Fragment(R.layout.fragment_map) {
                 coarse == PackageManager.PERMISSION_GRANTED
     }
 
+    override fun onStart() {
+        super.onStart()
+        mapView.onStart()
+    }
+
     override fun onResume() {
         super.onResume()
+        mapView.onResume()
+
         if (hasLocationPermission()) {
             startLocationUpdates()
         }
@@ -424,7 +459,18 @@ class MapFragment : Fragment(R.layout.fragment_map) {
 
     override fun onPause() {
         super.onPause()
+        mapView.onPause()
         stopLocationUpdates()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        mapView.onSaveInstanceState(outState)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        mapView.onStop()
     }
 
     override fun onDestroyView() {
@@ -436,14 +482,21 @@ class MapFragment : Fragment(R.layout.fragment_map) {
         locationListener = null
 
         // 클러스터 제거
-        clusterCircles.forEach { id ->
+        clusterCircles.forEach { circle ->
             try {
-                tMapView.removeTMapCircle(id)
+                circle.map = null
             } catch (e: Exception) {
-                Log.w(TAG, "원형 제거 실패: $id", e)
+                Log.w(TAG, "원형 제거 실패", e)
             }
         }
         clusterCircles.clear()
+
+        mapView.onDestroy()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        mapView.onLowMemory()
     }
 
     override fun onRequestPermissionsResult(
