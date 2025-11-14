@@ -59,18 +59,15 @@ object CongestionCalculator {
 
             val userCount = nearbyUsers.size
 
-            // ✅ 1명만 있는 경우는 클러스터로 표시하지 않음
-            //if (userCount < 2) continue
-
             // 중심점 계산 (평균 위치)
             val centerLat = nearbyUsers.map { it.latitude }.average()
             val centerLon = nearbyUsers.map { it.longitude }.average()
 
-            // 혼잡도 레벨 결정 (2명부터 시작)
+            // ✅ 혼잡도 레벨 결정 (변경됨: 5명 이상 보통, 10명 이상 혼잡)
             val level = when {
-                userCount >= 5 -> CongestionLevel.HIGH
-                userCount in 1..4 -> CongestionLevel.MEDIUM
-                else -> CongestionLevel.LOW  // 이 케이스는 실제로 도달하지 않음
+                userCount >= 10 -> CongestionLevel.HIGH    // 10명 이상: 혼잡
+                userCount >= 5 -> CongestionLevel.MEDIUM   // 5~9명: 보통
+                else -> CongestionLevel.LOW                // 1~4명: 여유
             }
 
             clusters.add(
@@ -125,9 +122,9 @@ object CongestionCalculator {
         }
 
         return when {
-            nearbyCount >= 5 -> CongestionLevel.HIGH
-            nearbyCount in 2..4 -> CongestionLevel.MEDIUM
-            else -> CongestionLevel.LOW
+            nearbyCount >= 10 -> CongestionLevel.HIGH   // 10명 이상: 혼잡
+            nearbyCount >= 5 -> CongestionLevel.MEDIUM  // 5~9명: 보통
+            else -> CongestionLevel.LOW                 // 1~4명: 여유
         }
     }
 }
