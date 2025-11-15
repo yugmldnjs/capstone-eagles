@@ -19,6 +19,9 @@ import android.Manifest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity2 : AppCompatActivity() {
 
@@ -117,6 +120,8 @@ class MainActivity2 : AppCompatActivity() {
         binding = ActivityMain2Binding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        hideNavigationBar() // 네비게이션 바 숨기는 함수
+
         // 앱이 처음 시작될 때만 초기 프래그먼트 설정
         if (savedInstanceState == null) {
             mapFragment = MapFragment()
@@ -164,6 +169,32 @@ class MainActivity2 : AppCompatActivity() {
                 // 현재 뷰 상태에 맞게 속도계와 미니카메라도 복원
                 syncUiToState()
             }
+        }
+    }
+
+    private fun hideNavigationBar() {
+        // API 30 (Android 11) 이상
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+
+            val controller = WindowInsetsControllerCompat(window, binding.root)
+
+            controller.hide(WindowInsetsCompat.Type.navigationBars())
+
+            // 사용자가 스와이프할 때만 시스템 바가 잠시 나타나도록
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+        } else {
+            // API 30 미만
+            // 'DEPRECATION' 경고 무시
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    )
         }
     }
 
