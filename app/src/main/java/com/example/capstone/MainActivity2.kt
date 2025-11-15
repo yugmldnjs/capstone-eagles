@@ -22,12 +22,13 @@ import android.content.pm.PackageManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.activity.OnBackPressedCallback
 
 class MainActivity2 : AppCompatActivity() {
 
     private lateinit var binding: ActivityMain2Binding
     private val viewModel: MainViewModel by viewModels()
-
+    private lateinit var mapBackPressedCallback: OnBackPressedCallback
     // private lateinit var cameraFragment: CameraFragment
     private lateinit var mapFragment: MapFragment
 
@@ -121,6 +122,21 @@ class MainActivity2 : AppCompatActivity() {
         setContentView(binding.root)
 
         hideNavigationBar() // 네비게이션 바 숨기는 함수
+        // 1. 뒤로가기 콜백 객체 생성 (enabled: false 로 일단 비활성화)
+        mapBackPressedCallback = object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                // 활성화 상태에서 뒤로가기 누르면 카메라 뷰로 전환
+                showCameraView()
+            }
+        }
+
+        // 2. 디스패처에 콜백 추가
+        this.onBackPressedDispatcher.addCallback(this, mapBackPressedCallback)
+
+        // --- ⬆️ 여기까지 추가 ⬆️ ---
+
+        setupClickListeners()
+        observeViewModel() // 이 함수가 콜백을 활성화/비활성화 제어
 
         // 앱이 처음 시작될 때만 초기 프래그먼트 설정
         if (savedInstanceState == null) {
@@ -289,7 +305,9 @@ class MainActivity2 : AppCompatActivity() {
                     if (isDragging) {
                         val parent = view.parent as View
                         val maxX = parent.width - view.width
-                        val maxY = parent.height - view.height
+                        // Y는 카메라 버튼 안가리도록 제한둠.
+                        val marginPx = (16 * resources.displayMetrics.density)
+                        val maxY = binding.camera.top - view.height - marginPx
 
                         // 카메라가 화면 밖으로 안나가게 제한둔거
                         val newX = (initialViewX + dx).coerceIn(0f, maxX.toFloat())
@@ -381,6 +399,7 @@ class MainActivity2 : AppCompatActivity() {
         }
         viewModel.isMapVisible.observe(this) { isVisible ->
             syncUiToState()
+            mapBackPressedCallback.isEnabled = isVisible  // 지도 탭일때
         }
 
         viewModel.isRecording.observe(this) { isRecording ->
@@ -492,6 +511,7 @@ class MainActivity2 : AppCompatActivity() {
             if (shouldShowMinimap) {
                 binding.miniCamera.visibility = View.VISIBLE
                 recordingService?.updateMiniPreviewVisibility(true)
+                binding.miniCamera.bringToFront()  // 지도보다 무조건 앞에 있도록
             } else {
                 binding.miniCamera.visibility = View.GONE
             }
