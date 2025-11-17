@@ -120,10 +120,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext())
 
         locationRequest = LocationRequest.Builder(
-            Priority.PRIORITY_HIGH_ACCURACY,
-            1000L // 1초마다 체크
+            Priority.PRIORITY_BALANCED_POWER_ACCURACY, // HIGH_ACCURACY → BALANCED 로 완화
+            5000L // 기본 5초 (정확한 주기는 OS가 자동 조절)
         ).apply {
-            setMinUpdateDistanceMeters(5f)
+            setMinUpdateDistanceMeters(5f)         // 5m 이동 시에만 업데이트
+            setMinUpdateIntervalMillis(3000L)      // 최소 호출 간격 3초
             setWaitForAccurateLocation(false)
         }.build()
 
@@ -435,7 +436,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             Log.d(TAG, "실제 사용자 위치 ${allLocations.size}개로 혼잡도 계산")
 
             // 클러스터 생성
-            val clusters = CongestionCalculator.createClusters(allLocations, radiusMeters = 100.0)
+            val clusters = CongestionCalculator.createClusters(allLocations, radiusMeters = 150.0)
             Log.d(TAG, "생성된 클러스터: ${clusters.size}개")
 
             // 각 클러스터를 원형과 마커 동시에 표시
