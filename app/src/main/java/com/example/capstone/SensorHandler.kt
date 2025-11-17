@@ -10,7 +10,11 @@ import android.util.Log
 import kotlin.math.abs
 import kotlin.math.sqrt
 
-class SensorHandler(context: Context) : SensorEventListener {
+/*SensorHandler에서 발생한 충격 이벤트를 외부로 전달하기 위한 콜백 인터페이스*/
+fun interface ImpactListener {
+    fun onImpactDetected(accelData: FloatArray, gyroData: FloatArray?)
+}
+class SensorHandler(context: Context, private var listener: ImpactListener?) : SensorEventListener {
 
     companion object {
         private const val TAG = "SensorHandler"
@@ -45,9 +49,7 @@ class SensorHandler(context: Context) : SensorEventListener {
         }
     }
 
-    /**
-     * 센서 리스너 해제 및 데이터 수집 중단
-     */
+    /**센서 리스너 해제 및 데이터 수집 중단*/
     fun stop() {
         Log.d(TAG, "센서 리스너 해제")
         sensorManager.unregisterListener(this)
@@ -55,20 +57,33 @@ class SensorHandler(context: Context) : SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent?) {
         event?.let {
-            val eventDetected = when (it.sensor.type) {
-                Sensor.TYPE_ACCELEROMETER -> processAccelerometer(it)
-                Sensor.TYPE_GYROSCOPE -> processGyroscope(it)
-                else -> false // 다른 종류의 센서는 처리하지 않음
-            }
-
-            if(eventDetected){
-                // TODO: 사고 영상 추출 로직 호출
+            when (it.sensor.type) {
+                Sensor.TYPE_ACCELEROMETER -> {
+                    if (processAccelerometer(it)) {
+                        // --- 가속도계 값(linearAccel)과 함께 콜백 호출 ---
+                        // 자이로스코프 값은 아직 없으므로 null 전달
+                        listener?.onImpactDetected(linearAccel.clone(), null)
+                    }
+                }
+                Sensor.TYPE_GYROSCOPE -> {
+                    if (processGyroscope(it)) {
+                        // --- 자이로스코프 값(event.values)과 함께 콜백 호출 ---
+                        // 가속도계 값은 직접적인 원인이 아니므로 null 전달
+                        listener?.onImpactDetected(floatArrayOf(0f, 0f, 0f), it.values.clone())
+                    }
+                }
+                else -> {} // 다른 종류의 센서는 처리하지 않음
             }
         }
+
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
+    // 외부에서 리스너를 제거 가능
+    fun releaseListener() {
+        this.listener = null
+    }
     // 가속도 변화
     private fun processAccelerometer(event: SensorEvent) : Boolean{
         // 중력 필터링
@@ -86,7 +101,7 @@ class SensorHandler(context: Context) : SensorEventListener {
         val accelLog = "ACC - X: %.2f, Y: %.2f, Z: %.2f | Total: %.2f".format(
             linearAccel[0], linearAccel[1], linearAccel[2], totalAccel
         )
-        LogToFileHelper.writeLog(accelLog)
+        //LogToFileHelper.writeLog(accelLog)
         var crash = false
 
         // 급제동/충격 감지
@@ -98,7 +113,7 @@ class SensorHandler(context: Context) : SensorEventListener {
                 crash = true
                 val crashLog = "!!! 급제동 또는 전방 충격 감지 !!! Z: %.2f".format(linearAccel[maxIndex])
                 Log.w(TAG, crashLog)
-                LogToFileHelper.writeLog(crashLog)
+                //LogToFileHelper.writeLog(crashLog)
 
                 return crash
             }
@@ -114,7 +129,7 @@ class SensorHandler(context: Context) : SensorEventListener {
         val axisZ = event.values[2]
 
         val gyroLog = "GYRO - X: %.2f, Y: %.2f, Z: %.2f".format(axisX, axisY, axisZ)
-        LogToFileHelper.writeLog(gyroLog)
+        //LogToFileHelper.writeLog(gyroLog)
 
         // 낙차 감지
         val fallThreshold = 2.5f
@@ -122,7 +137,7 @@ class SensorHandler(context: Context) : SensorEventListener {
             fallen = true
             val fallLog = "!!! 낙차 감지 (넘어짐) !!! - X축 회전 속도: %.2f".format(axisX)
             Log.w(TAG, fallLog)
-            LogToFileHelper.writeLog(fallLog)
+            //LogToFileHelper.writeLog(fallLog)
 
             return fallen
         }

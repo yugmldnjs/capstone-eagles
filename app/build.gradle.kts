@@ -80,4 +80,7 @@ dependencies {
     implementation("androidx.room:room-ktx:$room_version")
     ksp("androidx.room:room-compiler:$room_version")
 
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation (files("libs/ffmpeg-kit-full-gpl-6.0-2.LTS.aar")) // [웹 사이트에서 aar 파일 다운로드 받은 후 안드로이드 프로젝트 libs 폴더에 추가]
+    implementation ("com.arthenica:smart-exception-java:0.2.1")
 }
