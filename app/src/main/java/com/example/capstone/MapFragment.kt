@@ -474,6 +474,19 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                 width = 80
                 height = 80
                 map = naverMap
+
+                // ✅ 클릭 시 해당 위치로 줌인
+                setOnClickListener {
+                    isProgrammaticMove = true
+                    val cameraPosition = CameraPosition(
+                        LatLng(cluster.centerLat, cluster.centerLon),
+                        15.0  // 줌 레벨 (원하는 대로 조정)
+                    )
+                    val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+                        .animate(CameraAnimation.Easing)
+                    naverMap.moveCamera(cameraUpdate)
+                    true // 이벤트 소비
+                }
             }
             clusterMarkers.add(marker)
 
