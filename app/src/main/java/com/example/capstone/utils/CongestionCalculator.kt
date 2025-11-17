@@ -25,6 +25,9 @@ enum class CongestionLevel(val color: Int, val displayName: String) {
 
 /**
  * 위치 기반 혼잡도 클러스터링
+ *
+ * ✅ 기존: 각 위치마다 전체를 스캔하는 O(N²) 방식
+ * ✅ 변경: 그리드(Spatial Grid) 기반으로 O(N)에 가깝게 최적화
  */
 object CongestionCalculator {
 
@@ -40,34 +43,61 @@ object CongestionCalculator {
     ): List<CongestionCluster> {
         if (locations.isEmpty()) return emptyList()
 
+        // 평균 위도 기준으로 도(degree) ↔ 미터 변환값 계산
+        val meanLat = locations.map { it.latitude }.average()
+        val meanLatRad = Math.toRadians(meanLat)
+
+        val metersPerDegLat = 111_320.0                // 위도 1도 ≈ 111.32km
+        val metersPerDegLon = 111_320.0 * cos(meanLatRad).coerceAtLeast(0.000001)
+
+        // 클러스터 반경을 기준으로 그리드 셀 크기 결정
+        val cellSizeLat = radiusMeters / metersPerDegLat
+        val cellSizeLon = radiusMeters / metersPerDegLon
+
+        // 1) 위치들을 그리드에 분배
+        val grid = HashMap<Pair<Int, Int>, MutableList<LocationData>>()
+
+        for (loc in locations) {
+            val gx = floor(loc.latitude / cellSizeLat).toInt()
+            val gy = floor(loc.longitude / cellSizeLon).toInt()
+            val key = gx to gy
+            grid.getOrPut(key) { mutableListOf() }.add(loc)
+        }
+
+        // 2) 각 그리드 셀 + 주변 8셀만 보면서 클러스터 생성
+        val visited = HashSet<Pair<Int, Int>>()
         val clusters = mutableListOf<CongestionCluster>()
-        val processed = mutableSetOf<String>()
 
-        for (location in locations) {
-            if (location.userId in processed) continue
+        for ((key, _) in grid) {
+            if (visited.contains(key)) continue
 
-            // 현재 위치 주변의 사용자들 찾기
-            val nearbyUsers = locations.filter { other ->
-                calculateDistance(
-                    location.latitude, location.longitude,
-                    other.latitude, other.longitude
-                ) <= radiusMeters
+            val (gx, gy) = key
+            val usersInCluster = mutableListOf<LocationData>()
+            val cellsInThisCluster = mutableListOf<Pair<Int, Int>>()
+
+            // 자기 칸 + 주변 8칸 → 최대 9칸만 검사
+            for (dx in -1..1) {
+                for (dy in -1..1) {
+                    val nk = (gx + dx) to (gy + dy)
+                    val list = grid[nk] ?: continue
+                    usersInCluster.addAll(list)
+                    cellsInThisCluster.add(nk)
+                }
             }
 
-            // 처리된 것으로 마킹
-            processed.addAll(nearbyUsers.map { it.userId })
-
-            val userCount = nearbyUsers.size
+            if (usersInCluster.isEmpty()) continue
 
             // 중심점 계산 (평균 위치)
-            val centerLat = nearbyUsers.map { it.latitude }.average()
-            val centerLon = nearbyUsers.map { it.longitude }.average()
+            val centerLat = usersInCluster.map { it.latitude }.average()
+            val centerLon = usersInCluster.map { it.longitude }.average()
 
-            // ✅ 혼잡도 레벨 결정 (변경됨: 5명 이상 보통, 10명 이상 혼잡)
+            val userCount = usersInCluster.size
+
+            // 혼잡도 레벨 결정 (기존 로직 유지: 10~24 보통, 25이상 혼잡)
             val level = when {
-                userCount >= 25 -> CongestionLevel.HIGH    // 10명 이상: 혼잡
-                userCount >= 10 -> CongestionLevel.MEDIUM   // 5~9명: 보통
-                else -> CongestionLevel.LOW                // 1~4명: 여유
+                userCount >= 25 -> CongestionLevel.HIGH
+                userCount >= 10 -> CongestionLevel.MEDIUM
+                else -> CongestionLevel.LOW
             }
 
             clusters.add(
@@ -78,6 +108,9 @@ object CongestionCalculator {
                     level = level
                 )
             )
+
+            // 이 클러스터에 포함된 모든 셀은 다시 처리하지 않도록 마킹
+            visited.addAll(cellsInThisCluster)
         }
 
         return clusters
@@ -86,6 +119,8 @@ object CongestionCalculator {
     /**
      * 두 지점 간 거리 계산 (미터 단위)
      * Haversine formula 사용
+     *
+     * (현재는 외부에서 필요할 수 있으니 남겨둠)
      */
     private fun calculateDistance(
         lat1: Double, lon1: Double,
@@ -104,27 +139,4 @@ object CongestionCalculator {
 
         return earthRadius * c
     }
-
-    /**
-     * 특정 위치의 혼잡도 레벨 가져오기
-     */
-//    fun getCongestionAtLocation(
-//        targetLat: Double,
-//        targetLon: Double,
-//        locations: List<LocationData>,
-//        radiusMeters: Double = 150.0
-//    ): CongestionLevel {
-//        val nearbyCount = locations.count { location ->
-//            calculateDistance(
-//                targetLat, targetLon,
-//                location.latitude, location.longitude
-//            ) <= radiusMeters
-//        }
-//
-//        return when {
-//            nearbyCount >= 10 -> CongestionLevel.HIGH   // 10명 이상: 혼잡
-//            nearbyCount >= 5 -> CongestionLevel.MEDIUM  // 5~9명: 보통
-//            else -> CongestionLevel.LOW                 // 1~4명: 여유
-//        }
-//    }
 }

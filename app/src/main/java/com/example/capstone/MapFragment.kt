@@ -28,7 +28,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ListenerRegistration
 import kotlin.math.*
 
-
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     private lateinit var naverMap: NaverMap
@@ -292,7 +291,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             lastUploadLon = lon
             lastUploadTime = currentTime
 
-            Log.d(TAG, "위치 업로드: 이동거리=${distanceMoved.toInt()}m, 경과시간=${timeDiff/1000}초")
+            Log.d(TAG, "위치 업로드: 이동거리=${distanceMoved.toInt()}m, 경과시간=${timeDiff / 1000}초")
         }
     }
 
@@ -324,177 +323,92 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         locationListener = repo.listenRecentLocations(minutesAgo = 2) { locations ->
             Log.d(TAG, "혼잡도 업데이트: ${locations.size}개 사용자")
-
-            // ========== 🔴 더미 데이터 추가 시작 (테스트용 - 나중에 삭제) ==========
-            val dummyLocations = generateDummyLocations()
-            val allLocations = locations + dummyLocations
-            Log.d(TAG, "더미 데이터 포함: ${allLocations.size}개 (실제: ${locations.size}, 더미: ${dummyLocations.size})")
-            updateCongestionClusters(allLocations)
-            // ========== 🔴 더미 데이터 추가 끝 ==========
-
-            // 실제 운영 시 사용할 코드 (위 3줄 삭제 후 주석 해제)
-            // updateCongestionClusters(locations)
+            updateCongestionClusters(locations)
         }
     }
-
-    /**
-     * ========== 🔴 더미 데이터 생성 함수 (테스트용 - 나중에 삭제) ==========
-     * 전국 주요 도시에 골고루 분포된 더미 데이터 생성
-     */
-    private fun generateDummyLocations(): List<LocationData> {
-        val dummyData = mutableListOf<LocationData>()
-        val currentTime = System.currentTimeMillis()
-
-        // 서울 (5개 클러스터) - 여유2, 보통2, 혼잡1
-        addDummyCluster(dummyData, 37.5665, 126.9780, 15, "seoul", currentTime)      // 시청 - 보통
-        addDummyCluster(dummyData, 37.5796, 126.9770, 28, "gangnam", currentTime)   // 강남 - 혼잡
-        addDummyCluster(dummyData, 37.5511, 126.9882, 8, "dongdaemun", currentTime) // 동대문 - 여유
-        addDummyCluster(dummyData, 37.5547, 126.9707, 32, "myeongdong", currentTime)// 명동 - 혼잡
-        addDummyCluster(dummyData, 37.5133, 127.1028, 12, "jamsil", currentTime)    // 잠실 - 보통
-
-        // 부산 (4개 클러스터) - 여유1, 보통2, 혼잡1
-        addDummyCluster(dummyData, 35.1796, 129.0756, 26, "haeundae", currentTime)  // 해운대 - 혼잡
-        addDummyCluster(dummyData, 35.1028, 129.0403, 14, "seomyeon", currentTime)  // 서면 - 보통
-        addDummyCluster(dummyData, 35.0979, 129.0361, 18, "nampo", currentTime)     // 남포동 - 보통
-        addDummyCluster(dummyData, 35.1588, 129.1603, 7, "gwangan", currentTime)    // 광안리 - 여유
-
-        // 대구 (3개 클러스터) - 여유1, 보통1, 혼잡1
-        addDummyCluster(dummyData, 35.8714, 128.6014, 16, "dongseong", currentTime) // 동성로 - 보통
-        addDummyCluster(dummyData, 35.8563, 128.5942, 29, "banwoldang", currentTime)// 반월당 - 혼잡
-        addDummyCluster(dummyData, 35.8242, 128.5618, 9, "duryu", currentTime)      // 두류 - 여유
-
-        // 인천 (3개 클러스터) - 여유1, 보통1, 혼잡1
-        addDummyCluster(dummyData, 37.4563, 126.7052, 25, "bupyeong", currentTime)  // 부평 - 혼잡
-        addDummyCluster(dummyData, 37.4748, 126.6216, 13, "songdo", currentTime)    // 송도 - 보통
-        addDummyCluster(dummyData, 37.4532, 126.7318, 8, "juan", currentTime)       // 주안 - 여유
-
-        // 광주 (3개 클러스터) - 여유1, 보통1, 혼잡1
-        addDummyCluster(dummyData, 35.1595, 126.8526, 30, "chungjang", currentTime) // 충장로 - 혼잡
-        addDummyCluster(dummyData, 35.1470, 126.9216, 11, "suwan", currentTime)     // 수완 - 보통
-        addDummyCluster(dummyData, 35.1260, 126.9153, 6, "sangmu", currentTime)     // 상무 - 여유
-
-        // 대전 (3개 클러스터) - 여유1, 보통1, 혼잡1
-        addDummyCluster(dummyData, 36.3504, 127.3845, 14, "dunsan", currentTime)    // 둔산 - 보통
-        addDummyCluster(dummyData, 36.3273, 127.4288, 27, "yuseong", currentTime)   // 유성 - 혼잡
-        addDummyCluster(dummyData, 36.3286, 127.4296, 9, "eunhaeng", currentTime)   // 은행 - 여유
-
-        // 울산 (2개 클러스터) - 보통1, 혼잡1
-        addDummyCluster(dummyData, 35.5384, 129.3114, 26, "samsan", currentTime)    // 삼산 - 혼잡
-        addDummyCluster(dummyData, 35.5666, 129.3313, 12, "dal", currentTime)       // 달동 - 보통
-
-        // 제주 (2개 클러스터) - 보통1, 여유1
-        addDummyCluster(dummyData, 33.4996, 126.5312, 17, "jeju", currentTime)      // 제주시 - 보통
-        addDummyCluster(dummyData, 33.2541, 126.5601, 7, "seogwipo", currentTime)   // 서귀포 - 여유
-
-        Log.d(TAG, "🔴 더미 데이터 생성 완료: ${dummyData.size}개 위치")
-        return dummyData
-    }
-
-    /**
-     * ========== 🔴 더미 클러스터 생성 헬퍼 함수 (테스트용 - 나중에 삭제) ==========
-     */
-    private fun addDummyCluster(
-        list: MutableList<LocationData>,
-        centerLat: Double,
-        centerLon: Double,
-        userCount: Int,
-        prefix: String,
-        timestamp: Long
-    ) {
-        // 중심점 주변에 사용자들을 랜덤하게 분포
-        for (i in 0 until userCount) {
-            // 반경 50m 내에 랜덤 분포
-            val angle = Math.random() * 2 * Math.PI
-            val distance = Math.random() * 50.0 // 0~50m
-
-            val deltaLat = (distance * cos(angle)) / 111320.0 // 위도 1도 = 약 111.32km
-            val deltaLon = (distance * sin(angle)) / (111320.0 * cos(Math.toRadians(centerLat)))
-
-            list.add(
-                LocationData(
-                    userId = "dummy_${prefix}_$i",
-                    latitude = centerLat + deltaLat,
-                    longitude = centerLon + deltaLon,
-                    timestamp = timestamp
-                )
-            )
-        }
-    }
-    // ========== 🔴 더미 데이터 관련 함수 끝 ==========
 
     /**
      * ✅ 혼잡도 클러스터 업데이트 및 지도에 표시
+     *
+     * 🔧 변경 사항:
+     * - 기존: clearAllOverlays()로 전부 지우고 매번 새로 생성
+     * - 변경: 리스트 크기만 맞춰서 Circle/Marker를 재사용
      */
     private fun updateCongestionClusters(locations: List<LocationData>) {
         if (!isMapReady) return
 
         try {
-            // 기존 오버레이 제거
-            clearAllOverlays()
-
             val allLocations = locations
             Log.d(TAG, "실제 사용자 위치 ${allLocations.size}개로 혼잡도 계산")
 
-            // 클러스터 생성
+            // 클러스터 생성 (성능 최적화된 계산 로직)
             val clusters = CongestionCalculator.createClusters(allLocations, radiusMeters = 150.0)
             Log.d(TAG, "생성된 클러스터: ${clusters.size}개")
 
-            // 각 클러스터를 원형과 마커 동시에 표시
-            clusters.forEachIndexed { index, cluster ->
-                // 1~4명: 표시 안 함
-                if (cluster.userCount < 5) return@forEachIndexed
+            // 1~4명: 표시 안 함
+            val displayClusters = clusters.filter { it.userCount >= 5 }
+            Log.d(TAG, "표시 대상 클러스터: ${displayClusters.size}개 (5명 이상만 표시)")
 
-                drawClusterOnMap(cluster, index)
+            // 필요한 만큼 CircleOverlay / Marker를 확보 (부족하면 생성)
+            while (clusterCircles.size < displayClusters.size) {
+                clusterCircles.add(CircleOverlay())
+            }
+            while (clusterMarkers.size < displayClusters.size) {
+                clusterMarkers.add(Marker())
+            }
+
+            // 클러스터별로 오버레이 설정 및 지도에 표시
+            displayClusters.forEachIndexed { index, cluster ->
+                // 1. 원형 오버레이 설정
+                val circle = clusterCircles[index]
+                circle.apply {
+                    center = LatLng(cluster.centerLat, cluster.centerLon)
+                    radius = 150.0
+                    color = addAlphaToColor(cluster.level.color, 0.55f)
+                    outlineColor = addAlphaToColor(cluster.level.color, 0.86f)
+                    outlineWidth = 6
+                    map = naverMap
+                }
+
+                // 2. 중앙 숫자 마커 설정
+                val marker = clusterMarkers[index]
+                marker.apply {
+                    position = LatLng(cluster.centerLat, cluster.centerLon)
+                    icon = createMarkerIcon(cluster.userCount, cluster.level)
+                    width = 80
+                    height = 80
+                    map = naverMap
+
+                    // ✅ 클릭 시 해당 위치로 줌인
+                    setOnClickListener {
+                        isProgrammaticMove = true
+                        val cameraPosition = CameraPosition(
+                            LatLng(cluster.centerLat, cluster.centerLon),
+                            15.0  // 줌 레벨 (원하는 대로 조정)
+                        )
+                        val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+                            .animate(CameraAnimation.Easing)
+                        naverMap.moveCamera(cameraUpdate)
+                        true // 이벤트 소비
+                    }
+                }
+
+                Log.d(
+                    TAG,
+                    "✅ 클러스터 표시: index=$index, (${cluster.userCount}명, ${cluster.level.displayName})"
+                )
+            }
+
+            // 더 이상 필요 없는 오버레이들은 map에서만 제거 (객체는 재사용)
+            for (i in displayClusters.size until clusterCircles.size) {
+                clusterCircles[i].map = null
+            }
+            for (i in displayClusters.size until clusterMarkers.size) {
+                clusterMarkers[i].map = null
             }
 
         } catch (e: Exception) {
             Log.e(TAG, "클러스터 업데이트 실패", e)
-        }
-    }
-
-    /**
-     * ✅ 클러스터를 원형 + 중앙 마커로 동시에 표시
-     */
-    private fun drawClusterOnMap(cluster: CongestionCluster, index: Int) {
-        try {
-            // 1. 원형 오버레이 생성
-            val circle = CircleOverlay().apply {
-                center = LatLng(cluster.centerLat, cluster.centerLon)
-                radius = 150.0
-                color = addAlphaToColor(cluster.level.color, 0.55f)
-                outlineColor = addAlphaToColor(cluster.level.color, 0.86f)
-                outlineWidth = 6
-                map = naverMap
-            }
-            clusterCircles.add(circle)
-
-            // 2. 중앙에 숫자 마커 생성
-            val marker = Marker().apply {
-                position = LatLng(cluster.centerLat, cluster.centerLon)
-                icon = createMarkerIcon(cluster.userCount, cluster.level)
-                width = 80
-                height = 80
-                map = naverMap
-
-                // ✅ 클릭 시 해당 위치로 줌인
-                setOnClickListener {
-                    isProgrammaticMove = true
-                    val cameraPosition = CameraPosition(
-                        LatLng(cluster.centerLat, cluster.centerLon),
-                        15.0  // 줌 레벨 (원하는 대로 조정)
-                    )
-                    val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
-                        .animate(CameraAnimation.Easing)
-                    naverMap.moveCamera(cameraUpdate)
-                    true // 이벤트 소비
-                }
-            }
-            clusterMarkers.add(marker)
-
-            Log.d(TAG, "✅ 클러스터 표시: cluster_$index (${cluster.userCount}명, ${cluster.level.displayName})")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "클러스터 그리기 실패: index=$index", e)
         }
     }
 
@@ -506,7 +420,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         val density = resources.displayMetrics.density
         val pixelSize = (size * density).toInt()
 
-        val bitmap = android.graphics.Bitmap.createBitmap(pixelSize, pixelSize, android.graphics.Bitmap.Config.ARGB_8888)
+        val bitmap = android.graphics.Bitmap.createBitmap(
+            pixelSize,
+            pixelSize,
+            android.graphics.Bitmap.Config.ARGB_8888
+        )
         val canvas = android.graphics.Canvas(bitmap)
 
         // 원형 배경 그리기
@@ -552,6 +470,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     /**
      * ✅ 모든 오버레이 제거 (원형 + 마커)
+     *  - onDestroyView 에서 완전히 정리할 때만 사용
      */
     private fun clearAllOverlays() {
         // 원형 오버레이 제거
@@ -678,7 +597,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         locationListener?.remove()
         locationListener = null
 
-        // ✅ 모든 오버레이 제거
+        // ✅ 모든 오버레이 제거 (다음에 다시 생성)
         clearAllOverlays()
 
         mapView.onDestroy()
