@@ -95,7 +95,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                         if (isMapReady) {
                             try {
                                 isProgrammaticMove = true
-                                val cameraPosition = CameraPosition(LatLng(lat, lon), 17.0)
+                                val cameraPosition = CameraPosition(LatLng(lat, lon), 15.0)
                                 val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
                                     .animate(CameraAnimation.Easing)
                                 naverMap.moveCamera(cameraUpdate)
@@ -344,46 +344,46 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         val dummyData = mutableListOf<LocationData>()
         val currentTime = System.currentTimeMillis()
 
-        // 서울 (5개 클러스터)
-        addDummyCluster(dummyData, 37.5665, 126.9780, 7, "seoul", currentTime)      // 시청 - 보통
-        addDummyCluster(dummyData, 37.5796, 126.9770, 12, "gangnam", currentTime)   // 강남 - 혼잡
-        addDummyCluster(dummyData, 37.5511, 126.9882, 6, "dongdaemun", currentTime) // 동대문 - 보통
-        addDummyCluster(dummyData, 37.5547, 126.9707, 15, "myeongdong", currentTime)// 명동 - 혼잡
-        addDummyCluster(dummyData, 37.5133, 127.1028, 8, "jamsil", currentTime)     // 잠실 - 보통
+        // 서울 (5개 클러스터) - 여유2, 보통2, 혼잡1
+        addDummyCluster(dummyData, 37.5665, 126.9780, 15, "seoul", currentTime)      // 시청 - 보통
+        addDummyCluster(dummyData, 37.5796, 126.9770, 28, "gangnam", currentTime)   // 강남 - 혼잡
+        addDummyCluster(dummyData, 37.5511, 126.9882, 8, "dongdaemun", currentTime) // 동대문 - 여유
+        addDummyCluster(dummyData, 37.5547, 126.9707, 32, "myeongdong", currentTime)// 명동 - 혼잡
+        addDummyCluster(dummyData, 37.5133, 127.1028, 12, "jamsil", currentTime)    // 잠실 - 보통
 
-        // 부산 (4개 클러스터)
-        addDummyCluster(dummyData, 35.1796, 129.0756, 11, "haeundae", currentTime)  // 해운대 - 혼잡
-        addDummyCluster(dummyData, 35.1028, 129.0403, 7, "seomyeon", currentTime)   // 서면 - 보통
-        addDummyCluster(dummyData, 35.0979, 129.0361, 13, "nampo", currentTime)     // 남포동 - 혼잡
-        addDummyCluster(dummyData, 35.1588, 129.1603, 6, "gwangan", currentTime)    // 광안리 - 보통
+        // 부산 (4개 클러스터) - 여유1, 보통2, 혼잡1
+        addDummyCluster(dummyData, 35.1796, 129.0756, 26, "haeundae", currentTime)  // 해운대 - 혼잡
+        addDummyCluster(dummyData, 35.1028, 129.0403, 14, "seomyeon", currentTime)  // 서면 - 보통
+        addDummyCluster(dummyData, 35.0979, 129.0361, 18, "nampo", currentTime)     // 남포동 - 보통
+        addDummyCluster(dummyData, 35.1588, 129.1603, 7, "gwangan", currentTime)    // 광안리 - 여유
 
-        // 대구 (3개 클러스터)
-        addDummyCluster(dummyData, 35.8714, 128.6014, 9, "dongseong", currentTime)  // 동성로 - 보통
-        addDummyCluster(dummyData, 35.8563, 128.5942, 12, "banwoldang", currentTime)// 반월당 - 혼잡
-        addDummyCluster(dummyData, 35.8242, 128.5618, 7, "duryu", currentTime)      // 두류 - 보통
+        // 대구 (3개 클러스터) - 여유1, 보통1, 혼잡1
+        addDummyCluster(dummyData, 35.8714, 128.6014, 16, "dongseong", currentTime) // 동성로 - 보통
+        addDummyCluster(dummyData, 35.8563, 128.5942, 29, "banwoldang", currentTime)// 반월당 - 혼잡
+        addDummyCluster(dummyData, 35.8242, 128.5618, 9, "duryu", currentTime)      // 두류 - 여유
 
-        // 인천 (3개 클러스터)
-        addDummyCluster(dummyData, 37.4563, 126.7052, 10, "bupyeong", currentTime)  // 부평 - 혼잡
-        addDummyCluster(dummyData, 37.4748, 126.6216, 8, "songdo", currentTime)     // 송도 - 보통
-        addDummyCluster(dummyData, 37.4532, 126.7318, 6, "juan", currentTime)       // 주안 - 보통
+        // 인천 (3개 클러스터) - 여유1, 보통1, 혼잡1
+        addDummyCluster(dummyData, 37.4563, 126.7052, 25, "bupyeong", currentTime)  // 부평 - 혼잡
+        addDummyCluster(dummyData, 37.4748, 126.6216, 13, "songdo", currentTime)    // 송도 - 보통
+        addDummyCluster(dummyData, 37.4532, 126.7318, 8, "juan", currentTime)       // 주안 - 여유
 
-        // 광주 (3개 클러스터)
-        addDummyCluster(dummyData, 35.1595, 126.8526, 11, "chungjang", currentTime) // 충장로 - 혼잡
-        addDummyCluster(dummyData, 35.1470, 126.9216, 7, "suwan", currentTime)      // 수완 - 보통
-        addDummyCluster(dummyData, 35.1260, 126.9153, 9, "sangmu", currentTime)     // 상무 - 보통
+        // 광주 (3개 클러스터) - 여유1, 보통1, 혼잡1
+        addDummyCluster(dummyData, 35.1595, 126.8526, 30, "chungjang", currentTime) // 충장로 - 혼잡
+        addDummyCluster(dummyData, 35.1470, 126.9216, 11, "suwan", currentTime)     // 수완 - 보통
+        addDummyCluster(dummyData, 35.1260, 126.9153, 6, "sangmu", currentTime)     // 상무 - 여유
 
-        // 대전 (3개 클러스터)
-        addDummyCluster(dummyData, 36.3504, 127.3845, 8, "dunsan", currentTime)     // 둔산 - 보통
-        addDummyCluster(dummyData, 36.3273, 127.4288, 12, "yuseong", currentTime)   // 유성 - 혼잡
-        addDummyCluster(dummyData, 36.3286, 127.4296, 6, "eunhaeng", currentTime)   // 은행 - 보통
+        // 대전 (3개 클러스터) - 여유1, 보통1, 혼잡1
+        addDummyCluster(dummyData, 36.3504, 127.3845, 14, "dunsan", currentTime)    // 둔산 - 보통
+        addDummyCluster(dummyData, 36.3273, 127.4288, 27, "yuseong", currentTime)   // 유성 - 혼잡
+        addDummyCluster(dummyData, 36.3286, 127.4296, 9, "eunhaeng", currentTime)   // 은행 - 여유
 
-        // 울산 (2개 클러스터)
-        addDummyCluster(dummyData, 35.5384, 129.3114, 10, "samsan", currentTime)    // 삼산 - 혼잡
-        addDummyCluster(dummyData, 35.5666, 129.3313, 7, "dal", currentTime)        // 달동 - 보통
+        // 울산 (2개 클러스터) - 보통1, 혼잡1
+        addDummyCluster(dummyData, 35.5384, 129.3114, 26, "samsan", currentTime)    // 삼산 - 혼잡
+        addDummyCluster(dummyData, 35.5666, 129.3313, 12, "dal", currentTime)       // 달동 - 보통
 
-        // 제주 (2개 클러스터)
-        addDummyCluster(dummyData, 33.4996, 126.5312, 13, "jeju", currentTime)      // 제주시 - 혼잡
-        addDummyCluster(dummyData, 33.2541, 126.5601, 8, "seogwipo", currentTime)   // 서귀포 - 보통
+        // 제주 (2개 클러스터) - 보통1, 여유1
+        addDummyCluster(dummyData, 33.4996, 126.5312, 17, "jeju", currentTime)      // 제주시 - 보통
+        addDummyCluster(dummyData, 33.2541, 126.5601, 7, "seogwipo", currentTime)   // 서귀포 - 여유
 
         Log.d(TAG, "🔴 더미 데이터 생성 완료: ${dummyData.size}개 위치")
         return dummyData
@@ -440,6 +440,9 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
             // 각 클러스터를 원형과 마커 동시에 표시
             clusters.forEachIndexed { index, cluster ->
+                // 1~4명: 표시 안 함
+                if (cluster.userCount < 5) return@forEachIndexed
+
                 drawClusterOnMap(cluster, index)
             }
 

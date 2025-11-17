@@ -65,8 +65,8 @@ object CongestionCalculator {
 
             // ✅ 혼잡도 레벨 결정 (변경됨: 5명 이상 보통, 10명 이상 혼잡)
             val level = when {
-                userCount >= 10 -> CongestionLevel.HIGH    // 10명 이상: 혼잡
-                userCount >= 5 -> CongestionLevel.MEDIUM   // 5~9명: 보통
+                userCount >= 25 -> CongestionLevel.HIGH    // 10명 이상: 혼잡
+                userCount >= 10 -> CongestionLevel.MEDIUM   // 5~9명: 보통
                 else -> CongestionLevel.LOW                // 1~4명: 여유
             }
 
@@ -108,23 +108,23 @@ object CongestionCalculator {
     /**
      * 특정 위치의 혼잡도 레벨 가져오기
      */
-    fun getCongestionAtLocation(
-        targetLat: Double,
-        targetLon: Double,
-        locations: List<LocationData>,
-        radiusMeters: Double = 150.0
-    ): CongestionLevel {
-        val nearbyCount = locations.count { location ->
-            calculateDistance(
-                targetLat, targetLon,
-                location.latitude, location.longitude
-            ) <= radiusMeters
-        }
-
-        return when {
-            nearbyCount >= 10 -> CongestionLevel.HIGH   // 10명 이상: 혼잡
-            nearbyCount >= 5 -> CongestionLevel.MEDIUM  // 5~9명: 보통
-            else -> CongestionLevel.LOW                 // 1~4명: 여유
-        }
-    }
+//    fun getCongestionAtLocation(
+//        targetLat: Double,
+//        targetLon: Double,
+//        locations: List<LocationData>,
+//        radiusMeters: Double = 150.0
+//    ): CongestionLevel {
+//        val nearbyCount = locations.count { location ->
+//            calculateDistance(
+//                targetLat, targetLon,
+//                location.latitude, location.longitude
+//            ) <= radiusMeters
+//        }
+//
+//        return when {
+//            nearbyCount >= 10 -> CongestionLevel.HIGH   // 10명 이상: 혼잡
+//            nearbyCount >= 5 -> CongestionLevel.MEDIUM  // 5~9명: 보통
+//            else -> CongestionLevel.LOW                 // 1~4명: 여유
+//        }
+//    }
 }
