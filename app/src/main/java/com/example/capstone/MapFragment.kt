@@ -22,8 +22,9 @@ import com.naver.maps.map.overlay.OverlayImage
 import com.example.capstone.data.LocationRepository
 import com.example.capstone.data.LocationData
 import com.example.capstone.utils.CongestionCalculator
-import com.example.capstone.utils.CongestionCluster
 import com.example.capstone.utils.CongestionLevel
+import com.example.capstone.dummy.BikeDummyData
+import com.example.capstone.utils.CongestionCluster
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ListenerRegistration
 import kotlin.math.*
@@ -316,14 +317,16 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
      * ✅ 혼잡도 실시간 리스너 시작
      */
     private fun startCongestionListener() {
-        if (!isMapReady) {
-            Log.w(TAG, "지도가 아직 준비되지 않았습니다.")
-            return
-        }
+        locationListener = repo.listenRecentLocations(minutesAgo = 2) { realLocations ->
 
-        locationListener = repo.listenRecentLocations(minutesAgo = 2) { locations ->
-            Log.d(TAG, "혼잡도 업데이트: ${locations.size}개 사용자")
-            updateCongestionClusters(locations)
+            val finalLocations =
+                if (BuildConfig.USE_DUMMY_BIKE_DATA) {
+                    realLocations + BikeDummyData.generate()
+                } else {
+                    realLocations
+                }
+
+            updateCongestionClusters(finalLocations)
         }
     }
 
@@ -345,8 +348,10 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             val clusters = CongestionCalculator.createClusters(allLocations, radiusMeters = 150.0)
             Log.d(TAG, "생성된 클러스터: ${clusters.size}개")
 
+            val mergedClusters = mergeNearbyClusters(clusters)
+
             // 1~4명: 표시 안 함
-            val displayClusters = clusters.filter { it.userCount >= 5 }
+            val displayClusters = mergedClusters.filter { it.userCount >= 5 }
             Log.d(TAG, "표시 대상 클러스터: ${displayClusters.size}개 (5명 이상만 표시)")
 
             // 필요한 만큼 CircleOverlay / Marker를 확보 (부족하면 생성)
@@ -492,6 +497,47 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             }
         }
         clusterMarkers.clear()
+    }
+
+    private fun mergeNearbyClusters(
+        clusters: List<CongestionCluster>,
+        mergeThresholdMeters: Double = 220.0
+    ): List<CongestionCluster> {
+
+        val result = mutableListOf<CongestionCluster>()
+
+        for (cluster in clusters) {
+            val existing = result.firstOrNull {
+                val dist = calculateDistance(
+                    it.centerLat, it.centerLon,
+                    cluster.centerLat, cluster.centerLon
+                )
+                dist < mergeThresholdMeters
+            }
+
+            if (existing == null) {
+                result.add(cluster)
+            } else {
+                val newCount = existing.userCount + cluster.userCount
+                val newLevel = when {
+                    newCount >= 25 -> CongestionLevel.HIGH
+                    newCount >= 10 -> CongestionLevel.MEDIUM
+                    else -> CongestionLevel.LOW
+                }
+
+                val merged = existing.copy(
+                    centerLat = (existing.centerLat + cluster.centerLat) / 2,
+                    centerLon = (existing.centerLon + cluster.centerLon) / 2,
+                    userCount = newCount,
+                    level = newLevel
+                )
+
+
+                result.remove(existing)
+                result.add(merged)
+            }
+        }
+        return result
     }
 
     /**
