@@ -286,7 +286,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         if (shouldUpload) {
             val userId = auth.currentUser?.uid ?: "anonymous"
-            repo.uploadLocation(userId, lat, lon)
+
+            // ✅ 업로드 전에 위치를 격자에 맞춰서 뭉개기
+            val (safeLat, safeLon) = quantizeLatLon(lat, lon)
+
+            repo.uploadLocation(userId, safeLat, safeLon)
 
             lastUploadLat = lat
             lastUploadLon = lon
@@ -311,6 +315,15 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
 
         return earthRadius * c
+    }
+
+    private fun quantizeLatLon(lat: Double, lon: Double): Pair<Double, Double> {
+        // factor 클수록 더 정밀, 작을수록 더 거칠어짐
+        // 대략 111km * 0.001 ≈ 110m 정도
+        val factor = 1000.0   // 소수점 셋째 자리까지
+        val qLat = kotlin.math.round(lat * factor) / factor
+        val qLon = kotlin.math.round(lon * factor) / factor
+        return qLat to qLon
     }
 
     /**
