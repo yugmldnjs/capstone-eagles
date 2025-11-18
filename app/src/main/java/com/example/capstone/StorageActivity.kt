@@ -1,8 +1,9 @@
 package com.example.capstone
 
 import android.content.Intent
-import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.widget.Toast
@@ -13,7 +14,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.capstone.databinding.ActivityStorageBinding
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -21,6 +21,7 @@ import kotlin.math.log10
 import kotlin.math.pow
 import androidx.core.net.toUri
 import androidx.core.view.isVisible
+import kotlin.collections.mutableListOf
 
 data class VideoItem(
     val videoPath: String,
@@ -50,7 +51,8 @@ class StorageActivity : AppCompatActivity() {
             insets
         }
 
-        loadVideosFromStorage()
+        loadVideosFromStorage(fullVideoList, "Movies/MyBlackboxVideos/Full/%")
+        loadVideosFromStorage(eventVideoList, "Movies/MyBlackboxVideos/Events/%")
         setupRecyclerView()
 
         binding.fullVideoBtn.setOnClickListener {
@@ -70,67 +72,54 @@ class StorageActivity : AppCompatActivity() {
         checkEmptyList()
     }
 
-    private fun loadVideosFromStorage() {
-        fullVideoList.clear()
-        eventVideoList.clear() // 이벤트 비디오 리스트도 함께 초기화
+    private fun loadVideosFromStorage(videoList: MutableList<VideoItem>, dirPath: String) {
+        videoList.clear()
 
-        // 1. 원본 영상('recordings') 폴더에서 영상 불러오기
-        val recordingsDir = getExternalFilesDir("recordings")
-        if (recordingsDir != null && recordingsDir.exists()) {
-            val videoFiles = recordingsDir.listFiles { file -> file.isFile && file.extension == "mp4" }
-            videoFiles?.sortByDescending { it.lastModified() } // 최신 순으로 정렬
+        val projection = arrayOf(
+            MediaStore.Video.Media._ID,
+            MediaStore.Video.Media.DATE_ADDED,
+            MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.DURATION,
+            MediaStore.Video.Media.RELATIVE_PATH
+        )
 
-            videoFiles?.forEach { file ->
-                val videoItem = createVideoItemFromFile(file)
-                if (videoItem != null) {
-                    fullVideoList.add(videoItem)
-                }
+        val selection = "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?"
+        val selectionArgs = arrayOf(dirPath)
+        val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
+
+        val query = contentResolver.query(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            selectionArgs,
+            sortOrder
+        )
+
+        query?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
+            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+            val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idColumn)
+                val dateAdded = cursor.getLong(dateColumn) * 1000L
+                val size = cursor.getLong(sizeColumn)
+                val duration = cursor.getLong(durationColumn)
+                val contentUri =
+                    Uri.withAppendedPath(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id.toString())
+
+                videoList.add(
+                    VideoItem(
+                        videoPath = contentUri.toString(),
+                        date = SimpleDateFormat("yyyy/MM/dd", Locale.KOREA).format(Date(dateAdded)),
+                        time = SimpleDateFormat("HH시 mm분", Locale.KOREA).format(Date(dateAdded)),
+                        location = "위치 정보 없음",
+                        videoTime = formatDuration(duration),
+                        videoSize = formatFileSize(size)
+                    )
+                )
             }
-        } else {
-            Log.w("StorageActivity", "Recordings 디렉토리가 없거나 접근할 수 없습니다.")
-        }
-
-        // 2. 이벤트 영상('events') 폴더에서 영상 불러오기
-        val eventsDir = getExternalFilesDir("events")
-        if (eventsDir != null && eventsDir.exists()) {
-            val eventFiles = eventsDir.listFiles { file -> file.isFile && file.extension == "mp4" }
-            eventFiles?.sortByDescending { it.lastModified() } // 최신 순으로 정렬
-
-            eventFiles?.forEach { file ->
-                val videoItem = createVideoItemFromFile(file)
-                if (videoItem != null) {
-                    eventVideoList.add(videoItem)
-                }
-            }
-        } else {
-            Log.w("StorageActivity", "Events 디렉토리가 없거나 접근할 수 없습니다.")
-        }
-    }
-
-    // 파일을 기반으로 VideoItem 객체를 생성하는 헬퍼 함수
-    private fun createVideoItemFromFile(file: File): VideoItem? {
-        try {
-            val retriever = MediaMetadataRetriever()
-            retriever.setDataSource(file.absolutePath)
-
-            val dateAdded = file.lastModified()
-            val size = file.length()
-            val durationString = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-            val duration = durationString?.toLongOrNull() ?: 0L
-
-            retriever.release() // 리소스 해제
-
-            return VideoItem(
-                videoPath = file.absolutePath, // MediaStore URI 대신 실제 파일 경로 사용
-                date = SimpleDateFormat("yyyy/MM/dd", Locale.KOREA).format(Date(dateAdded)),
-                time = SimpleDateFormat("HH시 mm분", Locale.KOREA).format(Date(dateAdded)),
-                location = "위치 정보 없음", // 위치 정보는 별도 로직 필요
-                videoTime = formatDuration(duration),
-                videoSize = formatFileSize(size)
-            )
-        } catch (e: Exception) {
-            Log.e("StorageActivity", "파일 메타데이터를 읽는 중 오류 발생: ${file.name}", e)
-            return null
         }
     }
 
