@@ -28,6 +28,10 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import java.text.SimpleDateFormat
 import java.util.*
+import android.location.Location
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+
 
 class RecordingService : Service(), LifecycleOwner {
 
@@ -36,6 +40,9 @@ class RecordingService : Service(), LifecycleOwner {
     override val lifecycle: Lifecycle
         get() = lifecycleRegistry
     private val binder = LocalBinder()
+
+    private lateinit var fusedLocationClient: FusedLocationProviderClient  // 위치 정보 가져오기
+
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
     private var cameraProvider: ProcessCameraProvider? = null
@@ -57,6 +64,7 @@ class RecordingService : Service(), LifecycleOwner {
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
         lifecycleRegistry.currentState = Lifecycle.State.STARTED
         Log.d(TAG, "RecordingService onCreate()")
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
         lifecycleRegistry.currentState = Lifecycle.State.RESUMED
@@ -169,7 +177,7 @@ class RecordingService : Service(), LifecycleOwner {
         Log.d(TAG, "startRecording() called")
 
         val videoCapture = this.videoCapture ?: run {
-            Log.e(TAG, "VideoCapture is null - camera not initialized")
+            Log.e(TAG, "VideoCapture is null")
             return
         }
 
@@ -178,7 +186,42 @@ class RecordingService : Service(), LifecycleOwner {
             return
         }
 
-        Log.d(TAG, "Preparing to start recording...")
+        // 1. 위치 권한이 있는지 먼저 확인합니다.
+        val hasLocationPermission = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasLocationPermission) {
+            // 2. 권한이 있으면 현재 위치를 요청합니다. (비동기)
+            try {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                    if (location != null) {
+                        Log.d(TAG, "위치 확보 성공: ${location.latitude}, ${location.longitude}")
+                        // 위치를 찾았으면 위치 정보를 포함해서 녹화 시작
+                        startRecordingInternal(videoCapture, location)
+                    } else {
+                        Log.w(TAG, "위치 정보 null (GPS 미수신 등)")
+                        // 위치를 못 찾았으면 그냥 녹화 시작
+                        startRecordingInternal(videoCapture, null)
+                    }
+                }.addOnFailureListener {
+                    Log.e(TAG, "위치 정보 요청 실패", it)
+                    startRecordingInternal(videoCapture, null)
+                }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "위치 권한 보안 예외", e)
+                startRecordingInternal(videoCapture, null)
+            }
+        } else {
+            // 3. 권한이 없으면 바로 녹화 시작 (위치 없음)
+            Log.w(TAG, "위치 권한 없음")
+            startRecordingInternal(videoCapture, null)
+        }
+    }
+
+    // [수정됨] 실제 녹화를 수행하는 내부 함수
+    private fun startRecordingInternal(videoCapture: VideoCapture<Recorder>, location: Location?) {
+        Log.d(TAG, "startRecordingInternal - Location included: ${location != null}")
 
         val name = "Blackbox-${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
             .format(System.currentTimeMillis())}.mp4"
@@ -191,21 +234,28 @@ class RecordingService : Service(), LifecycleOwner {
             }
         }
 
-        val mediaStoreOutputOptions = MediaStoreOutputOptions
+        // 1. Builder를 먼저 만듭니다.
+        val outputOptionsBuilder = MediaStoreOutputOptions
             .Builder(contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
             .setContentValues(contentValues)
-            .build()
 
-        val audioPermission = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.RECORD_AUDIO
-        )
+        // 2. ★★★ 위치 정보가 있다면 Builder에 설정합니다 (여기가 바뀐 부분) ★★★
+        if (location != null) {
+            outputOptionsBuilder.setLocation(location)
+        }
 
-        Log.d(TAG, "Audio permission granted: ${audioPermission == PackageManager.PERMISSION_GRANTED}")
+        // 3. 설정을 다 넣은 뒤에 build()를 호출합니다.
+        val mediaStoreOutputOptions = outputOptionsBuilder.build()
+
+        val audioPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
 
         try {
-            recording = videoCapture.output
+            // 4. 생성된 옵션으로 녹화 준비 (여기서 setLocation을 호출하지 않습니다)
+            val pendingRecording = videoCapture.output
                 .prepareRecording(this, mediaStoreOutputOptions)
+
+            // 녹화 시작
+            recording = pendingRecording
                 .apply {
                     if (audioPermission == PackageManager.PERMISSION_GRANTED) {
                         withAudioEnabled()
@@ -216,7 +266,6 @@ class RecordingService : Service(), LifecycleOwner {
                         is VideoRecordEvent.Start -> {
                             updateNotification("녹화 중...")
                             sendBroadcast(Intent(ACTION_RECORDING_STARTED))
-                            Log.d(TAG, "녹화 시작 성공!")
                         }
                         is VideoRecordEvent.Finalize -> {
                             if (!recordEvent.hasError()) {
@@ -234,8 +283,6 @@ class RecordingService : Service(), LifecycleOwner {
                         }
                     }
                 }
-
-            Log.d(TAG, "Recording object created successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start recording", e)
             recording = null
