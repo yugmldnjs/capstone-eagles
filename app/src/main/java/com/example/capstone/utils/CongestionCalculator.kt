@@ -39,7 +39,7 @@ object CongestionCalculator {
      */
     fun createClusters(
         locations: List<LocationData>,
-        radiusMeters: Double = 100.0
+        radiusMeters: Double = 150.0
     ): List<CongestionCluster> {
         if (locations.isEmpty()) return emptyList()
 
