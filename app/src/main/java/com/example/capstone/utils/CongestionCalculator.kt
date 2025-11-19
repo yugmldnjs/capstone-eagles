@@ -50,9 +50,11 @@ object CongestionCalculator {
         val metersPerDegLat = 111_320.0                // 위도 1도 ≈ 111.32km
         val metersPerDegLon = 111_320.0 * cos(meanLatRad).coerceAtLeast(0.000001)
 
-        // 클러스터 반경을 기준으로 그리드 셀 크기 결정
-        val cellSizeLat = radiusMeters / metersPerDegLat
-        val cellSizeLon = radiusMeters / metersPerDegLon
+        // 반경 r인 원과 넓이가 비슷한 3×3 셀 묶음을 만들기 위한 셀 한 변 길이(m)
+        val cellSideMeters = (radiusMeters * sqrt(PI)) / 3.0   // ≈ 88.7m (r=150일 때)
+
+        val cellSizeLat = cellSideMeters / metersPerDegLat
+        val cellSizeLon = cellSideMeters / metersPerDegLon
 
         // 1) 위치들을 그리드에 분배
         val grid = HashMap<Pair<Int, Int>, MutableList<LocationData>>()
