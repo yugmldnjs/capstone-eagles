@@ -109,7 +109,7 @@ class EventExtractionWorker(
             return false
         }
         tempDir.mkdirs()
-        val tempFile = File(tempDir, "Impact_${eventTime}_temp.mp4")
+        val tempFile = File(tempDir, "Impact-${eventTime}_temp.mp4")
 
         // 이미 존재하면 삭제
         if (tempFile.exists()) {
@@ -138,7 +138,7 @@ class EventExtractionWorker(
 
                 // FFmpeg 성공
                 // 5. MediaStore에 등록
-                val finalUri = copyToMediaStore(tempFile, event)
+                val finalUri = copyToMediaStore(tempFile, eventTime)
 
                 if (finalUri == null) {
                     eventDao.update(event.copy(status = "failed"))
@@ -174,13 +174,14 @@ class EventExtractionWorker(
         }
     }
     // 임시 파일을 MediaStore로 복사
-    private fun copyToMediaStore(tempFile: File, event: EventEntity): Uri? {
+    private fun copyToMediaStore(tempFile: File, eventTime: Long): Uri? {
+        Log.d(TAG, "${eventTime}")
         try {
             val contentValues = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, "Impact_${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
-                    .format(event.timestamp)}.mp4")
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "Impact-${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
+                    .format(eventTime)}.mp4")
                 put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-                put(MediaStore.MediaColumns.DATE_TAKEN, event.timestamp)
+                put(MediaStore.MediaColumns.DATE_TAKEN, eventTime)
                 if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
                     put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MyBlackboxVideos/Events")
                 }

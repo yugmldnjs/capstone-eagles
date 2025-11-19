@@ -410,60 +410,35 @@ class RecordingService : Service(), LifecycleOwner, ImpactListener {
             return
         }
         lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
-        val event = EventEntity(
-            timestamp = timestamp,
-            recordingStartTimestamp = currentRecordingStartTime,
-            type = "impact",
-            latitude = currentLocation?.latitude,   // ✅ 확보된 위치 정보 저장
-            longitude = currentLocation?.longitude, // ✅ 확보된 위치 정보 저장
-            speed = currentSpeed,
-            accelerometerX = accelData[0],
-            accelerometerY = accelData[1],
-            accelerometerZ = accelData[2],
-            gyroX = gyroData?.get(0),
-            gyroY = gyroData?.get(1),
-            gyroZ = gyroData?.get(2),
-            videoUri = null,
-            extractedVideoPath = null,
-            status = "pending"
-        )
-        lifecycleScope.launch(Dispatchers.IO) {
-            eventDao.insert(event)
-        }
-        sendBroadcast(Intent(ACTION_RECORDING_SAVED).apply {
-            putExtra("message", "충격 이벤트가 감지되었습니다.")
-        })
-        Log.d(TAG, "⚡ 충격 이벤트 마커 저장 로직 완료: $timestamp")
 
-        // ... (쿨다운 및 녹화 시작 전 체크 로직은 그대로)
 
         // --- ⬇️ 여기가 핵심 수정 부분: 위치 정보를 동기적으로 가져와서 이벤트 생성 ⬇️ ---
-//        try {
-//            // 1. 위치 권한을 다시 한번 확인합니다.
-//            val hasLocationPermission = ContextCompat.checkSelfPermission(
-//                this, Manifest.permission.ACCESS_FINE_LOCATION
-//            ) == PackageManager.PERMISSION_GRANTED
-//
-//            if (hasLocationPermission) {
-//                // 2. 현재 위치를 요청하고, 성공/실패에 따라 EventEntity를 생성합니다.
-//                fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
-//                    Log.d(TAG, "충격 감지 시 위치 확보: ${location?.latitude}, ${location?.longitude}")
-//                    // 위치 정보와 함께 EventEntity를 생성하고 DB에 저장합니다.
-//                    createAndSaveEvent(timestamp, location, accelData, gyroData)
-//                }.addOnFailureListener {
-//                    Log.e(TAG, "충격 감지 시 위치 정보 요청 실패", it)
-//                    // 위치를 못 찾았더라도 이벤트는 기록되어야 하므로, 위치 정보 없이 생성합니다.
-//                    createAndSaveEvent(timestamp, null, accelData, gyroData)
-//                }
-//            } else {
-//                Log.w(TAG, "충격 감지 시 위치 권한 없음")
-//                // 권한이 없으면 위치 정보 없이 생성합니다.
-//                createAndSaveEvent(timestamp, null, accelData, gyroData)
-//            }
-//        } catch (e: SecurityException) {
-//            Log.e(TAG, "충격 감지 시 위치 권한 보안 예외", e)
-//            createAndSaveEvent(timestamp, null, accelData, gyroData)
-//        }
+        try {
+            // 1. 위치 권한을 다시 한번 확인합니다.
+            val hasLocationPermission = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (hasLocationPermission) {
+                // 2. 현재 위치를 요청하고, 성공/실패에 따라 EventEntity를 생성합니다.
+                fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                    Log.d(TAG, "충격 감지 시 위치 확보: ${location?.latitude}, ${location?.longitude}")
+                    // 위치 정보와 함께 EventEntity를 생성하고 DB에 저장합니다.
+                    createAndSaveEvent(timestamp, location, accelData, gyroData)
+                }.addOnFailureListener {
+                    Log.e(TAG, "충격 감지 시 위치 정보 요청 실패", it)
+                    // 위치를 못 찾았더라도 이벤트는 기록되어야 하므로, 위치 정보 없이 생성합니다.
+                    createAndSaveEvent(timestamp, null, accelData, gyroData)
+                }
+            } else {
+                Log.w(TAG, "충격 감지 시 위치 권한 없음")
+                // 권한이 없으면 위치 정보 없이 생성합니다.
+                createAndSaveEvent(timestamp, null, accelData, gyroData)
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "충격 감지 시 위치 권한 보안 예외", e)
+            createAndSaveEvent(timestamp, null, accelData, gyroData)
+        }
         // --- ⬆️ 수정 끝 ⬆️ ---
     }
 
@@ -474,12 +449,13 @@ class RecordingService : Service(), LifecycleOwner, ImpactListener {
         accelData: FloatArray,
         gyroData: FloatArray?
     ) {
+        Log.d(TAG, "location: ${location?.latitude}, ${location?.longitude}")
         val event = EventEntity(
             timestamp = timestamp,
             recordingStartTimestamp = currentRecordingStartTime,
             type = "impact",
-            latitude = location?.latitude,   // ✅ 확보된 위치 정보 저장
-            longitude = location?.longitude, // ✅ 확보된 위치 정보 저장
+            latitude = location?.latitude,
+            longitude = location?.longitude,
             speed = currentSpeed,
             accelerometerX = accelData[0],
             accelerometerY = accelData[1],
