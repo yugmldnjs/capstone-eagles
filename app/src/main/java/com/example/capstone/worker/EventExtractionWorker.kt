@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import androidx.core.net.toUri
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 
 class EventExtractionWorker(
@@ -62,7 +64,7 @@ class EventExtractionWorker(
         return if (successCount > 0) Result.success() else Result.retry()
     }
 
-    // ✅ MediaStore URI를 파일 경로로 변환
+    // MediaStore URI를 파일 경로로 변환
     private fun getPathFromUri(uri: Uri): String? {
         val projection = arrayOf(MediaStore.Video.Media.DATA)
         applicationContext.contentResolver.query(
@@ -87,7 +89,7 @@ class EventExtractionWorker(
      * @return 성공 여부
      */
     private suspend fun extractEventVideo(sourceVideo: File, event: EventEntity): Boolean {
-        // 1. 영상 시작 시간
+        // 1. 원본 영상 시작 시간
         val videoStartTime = event.recordingStartTimestamp
 
         // 이벤트 발생 시점
@@ -97,10 +99,10 @@ class EventExtractionWorker(
         val eventOffsetSeconds = (eventTime - videoStartTime) / 1000.0
 
         // 2. 추출 구간 계산 (이벤트 30초 전 ~ 30초 후)
-        val startTime = maxOf(0.0, eventOffsetSeconds - 30.0)
-        val duration = 60.0  // 60초
+        val startTime = maxOf(0.0, eventOffsetSeconds - 3.0)
+        val duration = 6.0  // 60초
 
-        // ✅ 3. 앱 폴더에 임시 파일 생성
+        // 3. 앱 폴더에 임시 파일 생성
         val tempDir = applicationContext.getExternalFilesDir("temp_events")
         if (tempDir == null) {
             Log.e(TAG, "❌ 임시 폴더 생성 실패!")
@@ -134,9 +136,9 @@ class EventExtractionWorker(
                     return@withContext false
                 }
 
-                // ✅ FFmpeg 성공
-                // ✅ 5. MediaStore에 등록
-                val finalUri = copyToMediaStore(tempFile, eventTime)
+                // FFmpeg 성공
+                // 5. MediaStore에 등록
+                val finalUri = copyToMediaStore(tempFile, event)
 
                 if (finalUri == null) {
                     eventDao.update(event.copy(status = "failed"))
@@ -144,7 +146,7 @@ class EventExtractionWorker(
                     return@withContext false
                 }
 
-                // ✅ 6. 최종 경로 가져오기
+                // 6. 최종 경로 가져오기
                 val finalPath = getPathFromUri(finalUri)
 
                 // DB 업데이트
@@ -155,12 +157,12 @@ class EventExtractionWorker(
 
                 // 임시 파일 삭제
                 tempFile.delete()
-                Log.d(TAG, "11. 임시 파일 삭제 완료")
+                Log.d(TAG, "임시 파일 삭제 완료")
 
                 // 메타데이터 JSON 저장
                 // saveEventMetadata(event, outputFile)
 
-                Log.d(TAG, "✅ 추출 완료: ${eventTime}")
+                Log.d(TAG, "추출 완료: ${eventTime}")
                 true
 
             } catch (e: Exception) {
@@ -171,12 +173,14 @@ class EventExtractionWorker(
             }
         }
     }
-    // ✅ 임시 파일을 MediaStore로 복사
-    private fun copyToMediaStore(tempFile: File, timestamp: Long): Uri? {
+    // 임시 파일을 MediaStore로 복사
+    private fun copyToMediaStore(tempFile: File, event: EventEntity): Uri? {
         try {
             val contentValues = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, "Impact_${timestamp}.mp4")
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "Impact_${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
+                    .format(event.timestamp)}.mp4")
                 put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                put(MediaStore.MediaColumns.DATE_TAKEN, event.timestamp)
                 if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
                     put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MyBlackboxVideos/Events")
                 }
@@ -197,13 +201,14 @@ class EventExtractionWorker(
             return uri
 
         } catch (e: Exception) {
-            Log.e(TAG, "❌ copyToMediaStore 실패", e)
+            Log.e(TAG, "copyToMediaStore 실패", e)
             return null
         }
     }
 
     companion object {
         private const val TAG = "ExtractionWorker"
+        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
     }
     /**
      * 이벤트 메타데이터를 JSON으로 저장

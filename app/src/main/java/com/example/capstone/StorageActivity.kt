@@ -22,6 +22,9 @@ import kotlin.math.pow
 import androidx.core.net.toUri
 import androidx.core.view.isVisible
 import kotlin.collections.mutableListOf
+import android.media.MediaMetadataRetriever
+import android.location.Geocoder
+import java.util.regex.Pattern
 
 data class VideoItem(
     val videoPath: String,
@@ -78,6 +81,7 @@ class StorageActivity : AppCompatActivity() {
         val projection = arrayOf(
             MediaStore.Video.Media._ID,
             MediaStore.Video.Media.DATE_ADDED,
+            MediaStore.Video.Media.DATE_TAKEN,
             MediaStore.Video.Media.SIZE,
             MediaStore.Video.Media.DURATION,
             MediaStore.Video.Media.RELATIVE_PATH
@@ -85,7 +89,7 @@ class StorageActivity : AppCompatActivity() {
 
         val selection = "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?"
         val selectionArgs = arrayOf(dirPath)
-        val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
+        val sortOrder = "${MediaStore.Video.Media.DATE_TAKEN} DESC, ${MediaStore.Video.Media.DATE_ADDED} DESC"
 
         val query = contentResolver.query(
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
@@ -97,24 +101,31 @@ class StorageActivity : AppCompatActivity() {
 
         query?.use { cursor ->
             val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
-            val dateColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
+            val dateAddedColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
+            val dateTakenColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_TAKEN)
             val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
             val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
 
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(idColumn)
-                val dateAdded = cursor.getLong(dateColumn) * 1000L
+                val dateAdded = cursor.getLong(dateAddedColumn) * 1000L
+                val dateTaken = cursor.getLong(dateTakenColumn)
                 val size = cursor.getLong(sizeColumn)
                 val duration = cursor.getLong(durationColumn)
                 val contentUri =
                     Uri.withAppendedPath(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id.toString())
 
+                val displayDate = if (dateTaken > 0) dateTaken else dateAdded
+                val date = Date(displayDate)
+
+                val locationString = getVideoLocation(contentUri)
+
                 videoList.add(
                     VideoItem(
                         videoPath = contentUri.toString(),
-                        date = SimpleDateFormat("yyyy/MM/dd", Locale.KOREA).format(Date(dateAdded)),
-                        time = SimpleDateFormat("HH시 mm분", Locale.KOREA).format(Date(dateAdded)),
-                        location = "위치 정보 없음",
+                        date = SimpleDateFormat("yyyy/MM/dd", Locale.KOREA).format(date),
+                        time = SimpleDateFormat("HH시 mm분", Locale.KOREA).format(date),
+                        location = locationString,
                         videoTime = formatDuration(duration),
                         videoSize = formatFileSize(size)
                     )
@@ -123,6 +134,53 @@ class StorageActivity : AppCompatActivity() {
         }
     }
 
+    private fun getVideoLocation(videoUri: Uri): String {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(this, videoUri)
+            // 영상 메타데이터 중 '위치' 키값을 가져옵니다. (형식 예: "+37.5665+126.9780/")
+            val locationMetadata = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LOCATION)
+
+            if (locationMetadata != null) {
+                // 이상한 기호(+/-)로 되어있는 문자열을 파싱해서 숫자(위도, 경도)로 바꿉니다.
+                val (lat, lon) = parseLocationString(locationMetadata)
+                // 숫자를 한글 주소로 바꿉니다.
+                return getAddressFromLocation(lat, lon)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            // 리소스 해제 (매우 중요)
+            retriever.release()
+        }
+        return "위치 정보 없음"
+    }
+
+    // [핵심 함수 2] "+37.5665+126.9780/" 같은 문자열을 위도, 경도 숫자로 분리
+    private fun parseLocationString(location: String): Pair<Double, Double> {
+        // ISO-6709 형식 파싱을 위한 정규식
+        val pattern = Pattern.compile("([+-]\\d+\\.\\d+)([+-]\\d+\\.\\d+)")
+        val matcher = pattern.matcher(location)
+
+        if (matcher.find()) {
+            val lat = matcher.group(1)?.toDoubleOrNull() ?: 0.0
+            val lon = matcher.group(2)?.toDoubleOrNull() ?: 0.0
+            return Pair(lat, lon)
+        }
+        return Pair(0.0, 0.0)
+    }
+
+    // [핵심 함수 3] 위도/경도 숫자를 한글 주소로 변환 (지난번 코드와 동일)
+    private fun getAddressFromLocation(lat: Double, lon: Double): String {
+        if (lat == 0.0 && lon == 0.0) return "위치 정보 없음"
+        return try {
+            val geocoder = Geocoder(this, Locale.KOREA)
+            val addresses = geocoder.getFromLocation(lat, lon, 1)
+            if (!addresses.isNullOrEmpty()) addresses[0].getAddressLine(0) else "알 수 없는 위치"
+        } catch (e: Exception) {
+            "위치 변환 실패"
+        }
+    }
     private fun formatDuration(millis: Long): String {
         val minutes = TimeUnit.MILLISECONDS.toMinutes(millis)
         val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) - TimeUnit.MINUTES.toSeconds(minutes)
