@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-class RecordingService : Service(), LifecycleOwner, ImpactListener {
+class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener {
     private val lifecycleRegistry = LifecycleRegistry(this)
 
     override val lifecycle: Lifecycle
@@ -333,7 +333,7 @@ class RecordingService : Service(), LifecycleOwner, ImpactListener {
             currentRecordingStartTime = 0
         }
         sensorHandler.start()
-        //LogToFileHelper.startLogging(this, "SensorLog")
+        LogToFileHelper.startLogging(this, "SensorLog")
     }
 
     fun stopRecording() {
@@ -403,7 +403,7 @@ class RecordingService : Service(), LifecycleOwner, ImpactListener {
         manager.notify(NOTIFICATION_ID, notification)
     }
 
-    override fun onImpactDetected(accelData: FloatArray, gyroData: FloatArray?) {
+    override fun onImpactDetected(linearAccel: FloatArray, totalAccel: Float) {
         val timestamp = System.currentTimeMillis()
         if (timestamp - lastImpactTimestamp < 30000) {
             Log.d(TAG, "쿨다운 시간 내의 중복 충격 감지. 무시합니다.")
@@ -412,6 +412,34 @@ class RecordingService : Service(), LifecycleOwner, ImpactListener {
         lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
 
 
+        checkLocationPermission(timestamp, linearAccel, null)
+    }
+
+    override fun onSuddenBrakeDetected(linearAccel: FloatArray, horizontalAccel: Float) {
+        val timestamp = System.currentTimeMillis()
+        if (timestamp - lastImpactTimestamp < 30000) {
+            Log.d(TAG, "쿨다운 시간 내의 중복 충격 감지. 무시합니다.")
+            return
+        }
+        lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
+
+
+        checkLocationPermission(timestamp, linearAccel, null)
+    }
+
+    override fun onFallDetected(rotation: FloatArray, totalRotation: Float) {
+        val timestamp = System.currentTimeMillis()
+        if (timestamp - lastImpactTimestamp < 30000) {
+            Log.d(TAG, "쿨다운 시간 내의 중복 충격 감지. 무시합니다.")
+            return
+        }
+        lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
+
+
+        checkLocationPermission(timestamp, floatArrayOf(0f, 0f, 0f), rotation)
+    }
+
+    private fun checkLocationPermission(timestamp: Long, accelData: FloatArray, gyroData: FloatArray?) {
         // --- ⬇️ 여기가 핵심 수정 부분: 위치 정보를 동기적으로 가져와서 이벤트 생성 ⬇️ ---
         try {
             // 1. 위치 권한을 다시 한번 확인합니다.
@@ -522,7 +550,6 @@ class RecordingService : Service(), LifecycleOwner, ImpactListener {
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         recording?.stop()
         cameraProvider?.unbindAll()
-        sensorHandler.releaseListener()
         sensorHandler.stop()
         LogToFileHelper.stopLogging()
     }
