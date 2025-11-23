@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     id("kotlin-kapt")
     alias(libs.plugins.google.gms.google.services)
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -52,6 +53,7 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
 
+    implementation("com.google.android.gms:play-services-location:21.0.1")
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
     implementation("com.google.guava:guava:33.0.0-android")
 
@@ -84,6 +86,15 @@ dependencies {
     // Tmap API
     implementation(files("libs/tmap-sdk-3.0.aar"))
     implementation(files("libs/vsm-tmap-sdk-v2-android-1.7.45.aar"))
+    // Room db 설정
+    val room_version = "2.6.1"
+    implementation("androidx.room:room-runtime:$room_version")
+    implementation("androidx.room:room-ktx:$room_version")
+    ksp("androidx.room:room-compiler:$room_version")
+
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation (files("libs/ffmpeg-kit-full-gpl-6.0-2.LTS.aar")) // [웹 사이트에서 aar 파일 다운로드 받은 후 안드로이드 프로젝트 libs 폴더에 추가]
+    implementation ("com.arthenica:smart-exception-java:0.2.1")
 }
 
 // Tmap 앱키 안전하게 읽기
@@ -94,4 +105,6 @@ fun getTmapApiKey(): String {
         FileInputStream(localPropsFile).use { properties.load(it) }
     }
     return properties.getProperty("TMAP_API_KEY", "")
+
+
 }

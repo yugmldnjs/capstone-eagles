@@ -42,6 +42,9 @@ class MainActivity2 : AppCompatActivity() {
 
             Log.d("MainActivity2", "Service connected")
 
+            // <<< 핵심: 서비스가 연결되면 콜백 리스너로 자신(this)을 등록 >>>
+            //recordingService?.setSensorCallback(this@MainActivity2)
+
             // View가 완전히 그려진 후 카메라 초기화
             binding.viewFinder.post {
                 binding.miniCamera.post {
@@ -173,6 +176,7 @@ class MainActivity2 : AppCompatActivity() {
             .commit()
     }
 
+    // 녹화 시작
     private fun toggleRecording() {
         Log.d("MainActivity2", "toggleRecording called, serviceBound=$serviceBound")
 
@@ -216,6 +220,33 @@ class MainActivity2 : AppCompatActivity() {
             }, 500)
         }
     }
+
+//    override fun onSensorDataChanged(accelData: FloatArray, linearAccel: FloatArray) {
+//        // 이 메서드는 Service에 의해 주기적으로 호출됩니다.
+//        // UI 업데이트는 반드시 메인 스레드에서 수행해야 합니다.
+//        if (linearAccel[2] <= -0.4) {
+//            Log.w("accelData", "급제동 감지 Z: %.2f".format(accelData[2]))
+//        } else if(accelData[1]<= 1.0){
+//            Log.w("accelData", "넘어짐 감지 Y(원본): %.2f".format(accelData[1]))
+//        }
+//
+//        runOnUiThread {
+//            binding.accelerate?.text = "X: %.2f  Y: %.2f  Z: %.2f".format(accelData[0], accelData[1], accelData[2])
+//            if(linearAccel[2]<=-0.4){
+//                binding.crash?.text = "급정거 감지 Z: %.2f".format(accelData[2])
+//            }else{
+//                binding.crash?.text = ""
+//            }
+//            if(accelData[1]<=2.0){
+//                // 기기 회전 시 원래 Y축 가속도 값은 0에 가까워짐
+//                binding.fallen?.text = "넘어짐 감지 Y: %.2f".format(accelData[1])
+//            }else{
+//                binding.fallen?.text = ""
+//            }
+//
+//
+//        }
+//    }
 
     private fun observeViewModel() {
         viewModel.isFlashOn.observe(this) { isOn ->
@@ -351,6 +382,7 @@ class MainActivity2 : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (serviceBound) {
+            //recordingService?.setSensorCallback(null) // 콜백 해제 추가
             unbindService(serviceConnection)
             serviceBound = false
         }
