@@ -28,6 +28,12 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.camera.core.ImageAnalysis
+import android.util.Size
+import com.example.capstone.ml.PotholeDetector
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import androidx.camera.core.UseCase
 
 class RecordingService : Service(), LifecycleOwner {
 
@@ -43,6 +49,14 @@ class RecordingService : Service(), LifecycleOwner {
     private var mainPreviewView: PreviewView? = null
     private var miniPreviewView: PreviewView? = null
     private var currentPreview: Preview? = null
+
+    private var imageAnalysis: ImageAnalysis? = null
+
+    // 포트홀 감지용 TFLite 래퍼
+    private var potholeDetector: PotholeDetector? = null
+
+    // 분석용 전용 스레드
+    private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
@@ -60,6 +74,9 @@ class RecordingService : Service(), LifecycleOwner {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
         lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+
+        // ★ 포트홀 감지 모델 초기화
+        potholeDetector = PotholeDetector(this)
     }
 
     fun setPreviewViews(mainPreview: PreviewView, miniPreview: PreviewView) {
@@ -128,13 +145,13 @@ class RecordingService : Service(), LifecycleOwner {
 
         Log.d(TAG, "bindCamera called, isRecording=${recording != null}")
 
-        // Preview는 1개만 생성
+        // 1) Preview (하나만 생성)
         val preview = Preview.Builder().build()
         preview.setSurfaceProvider(mainPreviewView.surfaceProvider)
         currentPreview = preview
         Log.d(TAG, "Single preview created")
 
-        // VideoCapture는 한 번만 생성
+        // 2) VideoCapture (기존 코드 유지)
         if (videoCapture == null) {
             val recorder = Recorder.Builder()
                 .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
@@ -145,25 +162,65 @@ class RecordingService : Service(), LifecycleOwner {
             Log.d(TAG, "VideoCapture already exists")
         }
 
+        // 3) ImageAnalysis (포트홀 감지용)
+        val detector = potholeDetector
+        if (detector == null) {
+            Log.e(TAG, "PotholeDetector is null, skip ImageAnalysis")
+        } else {
+            imageAnalysis = ImageAnalysis.Builder()
+                // YOLO 입력 크기에 맞춤 (320x320)
+                .setTargetResolution(Size(320, 320))
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build().also { analysis ->
+                    analysis.setAnalyzer(analysisExecutor) { image ->
+                        try {
+                            val detections = detector.detect(image)
+                            if (detections.isNotEmpty()) {
+                                // 일단은 로그로만 확인
+                                val maxScore = detections.maxOf { it.score }
+                                Log.d(
+                                    TAG,
+                                    "Pothole detected: count=${detections.size}, topScore=$maxScore"
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error during pothole detection", e)
+                        } finally {
+                            image.close()
+                        }
+                    }
+                }
+        }
+
         val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
         try {
             cameraProvider.unbindAll()
             Log.d(TAG, "Camera unbound")
 
-            // Preview 1개 + VideoCapture 1개만 바인딩
+            // 4) Preview + VideoCapture (+ ImageAnalysis) 바인딩
+            val useCases = mutableListOf<UseCase>(preview, videoCapture!!)
+
+            imageAnalysis?.let { analysis ->
+                useCases.add(analysis)
+            }
+
             camera = cameraProvider.bindToLifecycle(
                 this,
                 cameraSelector,
-                preview,
-                videoCapture
+                *useCases.toTypedArray()
             )
-            Log.d(TAG, "Camera bound successfully (Preview + VideoCapture)")
+
+            Log.d(
+                TAG,
+                "Camera bound successfully (Preview + VideoCapture${if (imageAnalysis != null) " + ImageAnalysis" else ""})"
+            )
             updateNotification("카메라 대기 중")
         } catch (e: Exception) {
             Log.e(TAG, "Camera binding failed", e)
         }
     }
+
 
     fun startRecording() {
         Log.d(TAG, "startRecording() called")
@@ -312,7 +369,19 @@ class RecordingService : Service(), LifecycleOwner {
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         recording?.stop()
         cameraProvider?.unbindAll()
+
+        // ★ 분석 리소스 정리
+        try {
+            imageAnalysis?.clearAnalyzer()
+        } catch (_: Exception) { }
+        imageAnalysis = null
+
+        potholeDetector?.close()
+        potholeDetector = null
+
+        analysisExecutor.shutdown()
     }
+
 
     companion object {
         private const val TAG = "RecordingService"
