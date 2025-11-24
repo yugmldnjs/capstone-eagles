@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.WindowManager
+import com.example.capstone.ml.PotholeDetection
 
 
 class MainActivity2 : AppCompatActivity() {
@@ -33,6 +34,20 @@ class MainActivity2 : AppCompatActivity() {
     // 원래 화면 밝기 저장 변수
     private var originalBrightness: Float = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     private var isPowerSavingActive = false
+
+    private val potholeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != RecordingService.ACTION_POTHOLE_DETECTIONS) return
+
+            val list = intent.getParcelableArrayListExtra<PotholeDetection>("detections")
+                ?: return
+
+            // 오버레이에 전달 (UI 스레드에서)
+            runOnUiThread {
+                binding.potholeOverlay?.updateDetections(list)
+            }
+        }
+    }
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -106,7 +121,19 @@ class MainActivity2 : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(recordingReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(recordingReceiver, filter)
+        }
+
+        // ★ 포트홀 감지 결과 리시버 등록
+        val potholeFilter = IntentFilter().apply {
+            addAction(RecordingService.ACTION_POTHOLE_DETECTIONS)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(potholeReceiver, potholeFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(potholeReceiver, potholeFilter)
         }
 
         setupClickListeners()
@@ -359,6 +386,12 @@ class MainActivity2 : AppCompatActivity() {
         } catch (e: Exception) {
             // 이미 해제된 경우 무시
         }
+        try {
+            unregisterReceiver(potholeReceiver)
+        } catch (e: Exception) {
+            // 이미 해제된 경우 무시
+        }
         cancelPowerSaving()
     }
+
 }
