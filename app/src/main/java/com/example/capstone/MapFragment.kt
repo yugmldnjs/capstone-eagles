@@ -29,9 +29,19 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ListenerRegistration
 import kotlin.math.*
 import com.example.capstone.data.PotholeData
+import com.example.capstone.data.PotholeRepository
 import com.example.capstone.dummy.PotholeDummyData
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
+
+    companion object {
+        private const val TAG = "MapFragment"
+        private const val UPLOAD_DISTANCE_THRESHOLD = 10.0 // 10m
+        private const val UPLOAD_TIME_THRESHOLD = 30000L // 30초
+
+        // ✅ 포트홀 병합 기준 거리 (m)
+        private const val POTHOLE_MERGE_DISTANCE_METERS = 5.0
+    }
 
     private lateinit var naverMap: NaverMap
     private lateinit var mapView: MapView
@@ -71,13 +81,63 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     // ✅ 포트홀 마커 리스트
     private val potholeMarkers = mutableListOf<Marker>()
 
+    // ✅ 포트홀 좌표 리스트 (중복 제거용)
+    private val potholePoints = mutableListOf<PotholeData>()
+
+    private lateinit var potholeRepo: PotholeRepository
+
     /**
      * ✅ 더미 포트홀 데이터를 불러와 지도에 마커로 표시
      */
     private fun loadDummyPotholes() {
-        // 나중에 BuildConfig 플래그로 제어해도 됨
         val dummyList = PotholeDummyData.generate()
-        updatePotholeMarkers(dummyList)
+
+        potholePoints.clear()
+        dummyList.forEach { pothole ->
+            addOrMergePothole(pothole.latitude, pothole.longitude)
+        }
+    }
+
+    /**
+     * ✅ 새 포트홀 좌표를 추가하거나,
+     *    근처에 기존 포인트가 있으면 합치는 함수
+     */
+    private fun addOrMergePothole(lat: Double, lon: Double) {
+        val existing = potholePoints.firstOrNull { p ->
+            calculateDistance(p.latitude, p.longitude, lat, lon) < POTHOLE_MERGE_DISTANCE_METERS
+        }
+
+        val targetLat: Double
+        val targetLon: Double
+
+        if (existing != null) {
+            val updated = existing.copy(
+                count = existing.count + 1,
+                createdAt = System.currentTimeMillis()
+            )
+            val index = potholePoints.indexOf(existing)
+            potholePoints[index] = updated
+
+            targetLat = updated.latitude
+            targetLon = updated.longitude
+        } else {
+            val newPothole = PotholeData(
+                id = null,
+                latitude = lat,
+                longitude = lon,
+                createdAt = System.currentTimeMillis(),
+                count = 1
+            )
+            potholePoints.add(newPothole)
+
+            targetLat = newPothole.latitude
+            targetLon = newPothole.longitude
+        }
+
+        updatePotholeMarkers(potholePoints)
+
+        // 🔻 이 부분은 모델 연동 시에만 활성화하면 됨 (지금은 주석 처리해도 괜찮아요)
+        // potholeRepo.uploadPothole(targetLat, targetLon)
     }
 
     /**
@@ -89,24 +149,31 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         // 마커 풀을 필요한 만큼 늘리기
         while (potholeMarkers.size < potholes.size) {
             potholeMarkers.add(Marker().apply {
-                // TODO: 나중에 포트홀 전용 아이콘으로 교체
-                // icon = OverlayImage.fromResource(R.drawable.ic_pothole_marker)
-                icon = OverlayImage.fromResource(com.naver.maps.map.R.drawable.navermap_default_marker_icon_black)
+                icon = OverlayImage.fromResource(
+                    com.naver.maps.map.R.drawable.navermap_default_marker_icon_black
+                )
                 width = 70
                 height = 70
             })
         }
 
-        // 실제 데이터 개수만큼 위치/맵 지정
         potholes.forEachIndexed { index, pothole ->
             val marker = potholeMarkers[index]
             marker.position = LatLng(pothole.latitude, pothole.longitude)
             marker.map = naverMap
 
-            // 필요하다면 클릭 리스너로 상세 정보 보여주기
             marker.setOnClickListener {
-                // 예: 토스트, 바텀시트 등으로 정보 표시
-                // Toast.makeText(requireContext(), "포트홀 감지 횟수: ${pothole.count}", Toast.LENGTH_SHORT).show()
+                // ✅ 포트홀 위치로 부드럽게 줌인
+                isProgrammaticMove = true
+                val cameraPosition = CameraPosition(
+                    LatLng(pothole.latitude, pothole.longitude),
+                    17.0  // 혼잡도보다 조금 더 확대하고 싶으면 17~18 정도
+                )
+                val cameraUpdate = CameraUpdate
+                    .toCameraPosition(cameraPosition)
+                    .animate(CameraAnimation.Easing)
+
+                naverMap.moveCamera(cameraUpdate)
                 true
             }
         }
@@ -118,11 +185,13 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     }
 
 
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         repo = LocationRepository()
         auth = FirebaseAuth.getInstance()
+        potholeRepo = PotholeRepository()
 
         // 1) 네이버 맵 초기화
         mapView = view.findViewById(R.id.map_view)
@@ -745,11 +814,5 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         ) {
             startLocationUpdates()
         }
-    }
-
-    companion object {
-        private const val TAG = "MapFragment"
-        private const val UPLOAD_DISTANCE_THRESHOLD = 10.0 // 10m
-        private const val UPLOAD_TIME_THRESHOLD = 30000L // 30초
     }
 }
