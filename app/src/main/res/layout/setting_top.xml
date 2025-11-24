@@ -39,7 +39,7 @@
         android:layout_gravity="center"
         android:layout_width="150dp"
         android:layout_height="150dp"
-        android:src="@drawable/profile_orang"
+        android:src="@drawable/profile_origin2"
         android:scaleType="centerCrop"
         android:contentDescription="설정 화면 프로필 이미지" />
 
