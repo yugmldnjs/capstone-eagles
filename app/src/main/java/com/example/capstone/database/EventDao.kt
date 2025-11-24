@@ -14,7 +14,7 @@ interface EventDao {
     suspend fun update(event: EventEntity)
 
     // 추출 대기 중인 이벤트 가져오기
-    @Query("SELECT * FROM events WHERE status = 'pending' ORDER BY timestamp DESC")
+    @Query("SELECT * FROM events WHERE status = 'pending' ORDER BY timestamp ASC")
     suspend fun getPendingExtractions(): List<EventEntity>
 
     // 모든 이벤트 가져오기 (UI 표시용)
