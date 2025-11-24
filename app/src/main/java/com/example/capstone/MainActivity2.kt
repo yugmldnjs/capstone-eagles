@@ -44,7 +44,7 @@ class MainActivity2 : AppCompatActivity() {
 
             // 오버레이에 전달 (UI 스레드에서)
             runOnUiThread {
-                binding.potholeOverlay?.updateDetections(list)
+                binding.potholeOverlay.updateDetections(list)
             }
         }
     }
