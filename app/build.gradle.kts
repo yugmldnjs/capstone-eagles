@@ -15,6 +15,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        mlModelBinding = true
     }
 
     defaultConfig {
@@ -50,6 +51,16 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+    }
+
+    // assets 폴더 지정
+    sourceSets["main"].assets.srcDirs("src/main/assets")
+
+    // tflite 파일은 압축하지 않도록
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
 }
 
@@ -95,6 +106,9 @@ dependencies {
 
     // 네이버 지도 SDK
     implementation("com.naver.maps:map-sdk:3.23.0")
+
+    // TensorFlow Lite 기본 runtime
+    implementation("org.tensorflow:tensorflow-lite:2.13.0")
 }
 
 // Tmap 앱키 안전하게 읽기
