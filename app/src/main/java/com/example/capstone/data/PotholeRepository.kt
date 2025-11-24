@@ -41,6 +41,46 @@ class PotholeRepository {
             }
     }
 
+    fun listenAllPotholes(
+        onUpdate: (List<PotholeData>) -> Unit
+    ): ListenerRegistration {
+        return collection
+            .orderBy("lastDetectedAt", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    Log.e("PotholeRepo", "listenAllPotholes error", e)
+                    return@addSnapshotListener
+                }
+
+                if (snapshot == null) {
+                    onUpdate(emptyList())
+                    return@addSnapshotListener
+                }
+
+                val list = snapshot.documents.mapNotNull { doc ->
+                    val lat = doc.getDouble("latitude")
+                    val lon = doc.getDouble("longitude")
+                    val count = doc.getLong("totalCount")?.toInt() ?: 1
+                    val ts = doc.getTimestamp("lastDetectedAt")?.toDate()?.time ?: 0L
+
+                    if (lat == null || lon == null) {
+                        null
+                    } else {
+                        PotholeData(
+                            id = doc.id,
+                            latitude = lat,
+                            longitude = lon,
+                            createdAt = ts,
+                            count = count
+                        )
+                    }
+                }
+
+                Log.d("PotholeRepo", "all potholes: ${list.size}")
+                onUpdate(list)
+            }
+    }
+
     /**
      * ✅ 최근 N시간 이내 포트홀만 실시간으로 듣기
      * - 나중에 맵에서 Firestore 기반으로 마커를 그리고 싶을 때 사용

@@ -91,6 +91,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     // ✅ 최근 포트홀 이벤트 시각
     private var lastPotholeEventTime: Long = 0L
+    private var potholeListener: ListenerRegistration? = null
 
     /**
      * ✅ 더미 포트홀 데이터를 불러와 지도에 마커로 표시
@@ -101,6 +102,22 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         potholePoints.clear()
         dummyList.forEach { pothole ->
             addOrMergePothole(pothole.latitude, pothole.longitude)
+        }
+    }
+
+    private fun startPotholeListener() {
+        // 혹시 살아 있는 리스너 있으면 정리
+        potholeListener?.remove()
+
+        potholeListener = potholeRepo.listenAllPotholes { serverPotholes ->
+            if (!isMapReady) return@listenAllPotholes
+
+            // 서버 기준으로 로컬 리스트 갱신
+            potholePoints.clear()
+            potholePoints.addAll(serverPotholes)
+
+            // 지도 마커 업데이트
+            updatePotholeMarkers(potholePoints)
         }
     }
 
@@ -410,6 +427,9 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         // ✅ 지도 준비 완료 후 혼잡도 리스너 시작
         startCongestionListener()
+
+        // ✅ 포트홀 리스너도 시작 (FireStore → 지도)
+        startPotholeListener()
 
         // ⚙️ DEBUG: 더미 포트홀 표시 (실제 모델과 같이 쓰면 헷갈리니 필요할 때만 켜기)
         // if (BuildConfig.SHOW_DUMMY_POTHOLES) {
@@ -805,6 +825,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         if (isMapReady && locationListener == null) {
             startCongestionListener()
         }
+
+        // ✅ 포트홀 리스너 재시작
+        if (isMapReady && potholeListener == null) {
+            startPotholeListener()
+        }
     }
 
     override fun onPause() {
@@ -830,6 +855,10 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         // ✅ 혼잡도 리스너 해제
         locationListener?.remove()
         locationListener = null
+
+        // ✅ 포트홀 리스너 해제
+        potholeListener?.remove()
+        potholeListener = null
 
         // ✅ 모든 오버레이 제거 (다음에 다시 생성)
         clearAllOverlays()
