@@ -28,6 +28,8 @@ import com.example.capstone.utils.CongestionCluster
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ListenerRegistration
 import kotlin.math.*
+import com.example.capstone.data.PotholeData
+import com.example.capstone.dummy.PotholeDummyData
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
@@ -65,6 +67,56 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     private var locationListener: ListenerRegistration? = null
     private val clusterCircles = mutableListOf<CircleOverlay>() // 원형 오버레이 저장
     private val clusterMarkers = mutableListOf<Marker>() // 마커 리스트
+
+    // ✅ 포트홀 마커 리스트
+    private val potholeMarkers = mutableListOf<Marker>()
+
+    /**
+     * ✅ 더미 포트홀 데이터를 불러와 지도에 마커로 표시
+     */
+    private fun loadDummyPotholes() {
+        // 나중에 BuildConfig 플래그로 제어해도 됨
+        val dummyList = PotholeDummyData.generate()
+        updatePotholeMarkers(dummyList)
+    }
+
+    /**
+     * ✅ 포트홀 마커 업데이트 (재사용 방식)
+     */
+    private fun updatePotholeMarkers(potholes: List<PotholeData>) {
+        if (!isMapReady) return
+
+        // 마커 풀을 필요한 만큼 늘리기
+        while (potholeMarkers.size < potholes.size) {
+            potholeMarkers.add(Marker().apply {
+                // TODO: 나중에 포트홀 전용 아이콘으로 교체
+                // icon = OverlayImage.fromResource(R.drawable.ic_pothole_marker)
+                icon = OverlayImage.fromResource(com.naver.maps.map.R.drawable.navermap_default_marker_icon_black)
+                width = 70
+                height = 70
+            })
+        }
+
+        // 실제 데이터 개수만큼 위치/맵 지정
+        potholes.forEachIndexed { index, pothole ->
+            val marker = potholeMarkers[index]
+            marker.position = LatLng(pothole.latitude, pothole.longitude)
+            marker.map = naverMap
+
+            // 필요하다면 클릭 리스너로 상세 정보 보여주기
+            marker.setOnClickListener {
+                // 예: 토스트, 바텀시트 등으로 정보 표시
+                // Toast.makeText(requireContext(), "포트홀 감지 횟수: ${pothole.count}", Toast.LENGTH_SHORT).show()
+                true
+            }
+        }
+
+        // 남는 마커들은 지도에서만 숨기고 객체는 재사용
+        for (i in potholes.size until potholeMarkers.size) {
+            potholeMarkers[i].map = null
+        }
+    }
+
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -250,6 +302,9 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         // ✅ 지도 준비 완료 후 혼잡도 리스너 시작
         startCongestionListener()
+
+        // ✅ 더미 포트홀 마커 표시
+        loadDummyPotholes()
     }
 
     /**
@@ -487,7 +542,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     }
 
     /**
-     * ✅ 모든 오버레이 제거 (원형 + 마커)
+     * ✅ 모든 오버레이 제거 (원형 + 혼잡도 마커 + 포트홀 마커)
      *  - onDestroyView 에서 완전히 정리할 때만 사용
      */
     private fun clearAllOverlays() {
@@ -510,6 +565,16 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             }
         }
         clusterMarkers.clear()
+
+        // ✅ 포트홀 마커 제거
+        potholeMarkers.forEach { marker ->
+            try {
+                marker.map = null
+            } catch (e: Exception) {
+                Log.w(TAG, "포트홀 마커 제거 실패", e)
+            }
+        }
+        potholeMarkers.clear()
     }
 
     private fun mergeNearbyClusters(
