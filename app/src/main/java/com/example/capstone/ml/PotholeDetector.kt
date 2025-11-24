@@ -15,10 +15,11 @@ import android.graphics.Rect
 import android.graphics.YuvImage
 import java.io.ByteArrayOutputStream
 import java.nio.ByteOrder
+import android.os.Parcel
+import android.os.Parcelable
 
 /**
  * 포트홀 감지 결과 하나를 표현하는 데이터 클래스
- * (나중에 박스 좌표, 스코어 등 채울 예정)
  */
 data class PotholeDetection(
     val score: Float,
@@ -26,8 +27,34 @@ data class PotholeDetection(
     val cy: Float,   // 0~1 정규화된 중심 y
     val w: Float,    // 0~1 정규화된 폭
     val h: Float     // 0~1 정규화된 높이
-)
+) : Parcelable {
 
+    constructor(parcel: Parcel) : this(
+        score = parcel.readFloat(),
+        cx = parcel.readFloat(),
+        cy = parcel.readFloat(),
+        w = parcel.readFloat(),
+        h = parcel.readFloat()
+    )
+
+    override fun writeToParcel(parcel: Parcel, flags: Int) {
+        parcel.writeFloat(score)
+        parcel.writeFloat(cx)
+        parcel.writeFloat(cy)
+        parcel.writeFloat(w)
+        parcel.writeFloat(h)
+    }
+
+    override fun describeContents(): Int = 0
+
+    companion object CREATOR : Parcelable.Creator<PotholeDetection> {
+        override fun createFromParcel(parcel: Parcel): PotholeDetection =
+            PotholeDetection(parcel)
+
+        override fun newArray(size: Int): Array<PotholeDetection?> =
+            arrayOfNulls(size)
+    }
+}
 
 /**
  * TFLite 포트홀 감지 모델 래퍼

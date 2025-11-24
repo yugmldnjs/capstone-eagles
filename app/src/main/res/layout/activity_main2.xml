@@ -20,7 +20,13 @@
       app:layout_constraintStart_toStartOf="parent"
       app:layout_constraintEnd_toEndOf="parent" />
 
-
+  <!-- ★ 포트홀 오버레이를 프리뷰 위에 겹치기 -->
+  <com.example.capstone.PotholeOverlayView
+      android:id="@+id/potholeOverlay"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:clickable="false"
+      android:focusable="false"/>
 
   <!-- 미니 카메라 -->
   <androidx.camera.view.PreviewView

@@ -34,6 +34,7 @@ import com.example.capstone.ml.PotholeDetector
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import androidx.camera.core.UseCase
+import com.example.capstone.ml.PotholeDetection
 
 class RecordingService : Service(), LifecycleOwner {
 
@@ -57,6 +58,9 @@ class RecordingService : Service(), LifecycleOwner {
 
     // 분석용 전용 스레드
     private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    // 감지 결과 브로드캐스트 간 최소 간격 (ms)
+    private var lastDetectionBroadcastTime: Long = 0L
 
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
@@ -182,6 +186,9 @@ class RecordingService : Service(), LifecycleOwner {
                                     TAG,
                                     "Pothole detected: count=${detections.size}, topScore=$maxScore"
                                 )
+
+                                // ★ 액티비티로 감지 결과 브로드캐스트
+                                broadcastPotholeDetections(detections)
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error during pothole detection", e)
@@ -364,6 +371,26 @@ class RecordingService : Service(), LifecycleOwner {
         manager.notify(NOTIFICATION_ID, notification)
     }
 
+    private fun broadcastPotholeDetections(detections: List<PotholeDetection>) {
+        val now = System.currentTimeMillis()
+        // 너무 자주 쏘면 부담되니 200ms 간격으로 제한
+        if (now - lastDetectionBroadcastTime < 200L) return
+        lastDetectionBroadcastTime = now
+
+        // Intent 생성
+        val intent = Intent(ACTION_POTHOLE_DETECTIONS)
+
+        // Parcelable ArrayList로 넣기
+        intent.putParcelableArrayListExtra(
+            "detections",
+            ArrayList<PotholeDetection>(detections)
+        )
+
+        // 브로드캐스트 전송
+        sendBroadcast(intent)
+    }
+
+
     override fun onDestroy() {
         super.onDestroy()
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
@@ -392,5 +419,7 @@ class RecordingService : Service(), LifecycleOwner {
         const val ACTION_RECORDING_STARTED = "com.example.capstone.RECORDING_STARTED"
         const val ACTION_RECORDING_STOPPED = "com.example.capstone.RECORDING_STOPPED"
         const val ACTION_RECORDING_SAVED = "com.example.capstone.RECORDING_SAVED"
+        // ★ 포트홀 감지 브로드캐스트 액션 추가
+        const val ACTION_POTHOLE_DETECTIONS = "com.example.capstone.POTHOLE_DETECTIONS"
     }
 }
