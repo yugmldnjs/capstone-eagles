@@ -35,9 +35,30 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import androidx.camera.core.UseCase
 import com.example.capstone.ml.PotholeDetection
+import android.os.Handler
+import android.os.Looper
+
 
 class RecordingService : Service(), LifecycleOwner {
 
+    companion object {
+        private const val TAG = "RecordingService"
+        private const val CHANNEL_ID = "recording_channel"
+        private const val NOTIFICATION_ID = 1
+        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
+
+        const val ACTION_RECORDING_STARTED = "com.example.capstone.RECORDING_STARTED"
+        const val ACTION_RECORDING_STOPPED = "com.example.capstone.RECORDING_STOPPED"
+        const val ACTION_RECORDING_SAVED = "com.example.capstone.RECORDING_SAVED"
+        // ★ 포트홀 감지 브로드캐스트 액션 추가
+        const val ACTION_POTHOLE_DETECTIONS = "com.example.capstone.POTHOLE_DETECTIONS"
+    }
+
+    // 메인 스레드로 결과를 보내기 위한 핸들러
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // 포트홀 감지 결과를 받을 리스너 (액티비티에서 등록)
+    private var potholeListener: ((List<PotholeDetection>) -> Unit)? = null
     private val lifecycleRegistry = LifecycleRegistry(this)
 
     override val lifecycle: Lifecycle
@@ -61,6 +82,10 @@ class RecordingService : Service(), LifecycleOwner {
 
     // 감지 결과 브로드캐스트 간 최소 간격 (ms)
     private var lastDetectionBroadcastTime: Long = 0L
+
+    fun setPotholeListener(listener: ((List<PotholeDetection>) -> Unit)?) {
+        potholeListener = listener
+    }
 
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
@@ -179,16 +204,23 @@ class RecordingService : Service(), LifecycleOwner {
                     analysis.setAnalyzer(analysisExecutor) { image ->
                         try {
                             val detections = detector.detect(image)
+
+                            // ✅ 1) 리스너로 직접 전달 (UI 업데이트용)
+                            potholeListener?.let { listener ->
+                                mainHandler.post {
+                                    listener(detections)
+                                }
+                            }
+
+                            // ✅ 2) 그대로 브로드캐스트도 유지 (나중에 필요하면 활용)
+                            broadcastPotholeDetections(detections)
+
                             if (detections.isNotEmpty()) {
-                                // 일단은 로그로만 확인
                                 val maxScore = detections.maxOf { it.score }
                                 Log.d(
                                     TAG,
                                     "Pothole detected: count=${detections.size}, topScore=$maxScore"
                                 )
-
-                                // ★ 액티비티로 감지 결과 브로드캐스트
-                                broadcastPotholeDetections(detections)
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error during pothole detection", e)
@@ -386,6 +418,12 @@ class RecordingService : Service(), LifecycleOwner {
             ArrayList<PotholeDetection>(detections)
         )
 
+        // ★ 여기 로그 추가
+        Log.d(
+            TAG,
+            "broadcastPotholeDetections() sending ${detections.size} detections"
+        )
+
         // 브로드캐스트 전송
         sendBroadcast(intent)
     }
@@ -407,19 +445,5 @@ class RecordingService : Service(), LifecycleOwner {
         potholeDetector = null
 
         analysisExecutor.shutdown()
-    }
-
-
-    companion object {
-        private const val TAG = "RecordingService"
-        private const val CHANNEL_ID = "recording_channel"
-        private const val NOTIFICATION_ID = 1
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
-
-        const val ACTION_RECORDING_STARTED = "com.example.capstone.RECORDING_STARTED"
-        const val ACTION_RECORDING_STOPPED = "com.example.capstone.RECORDING_STOPPED"
-        const val ACTION_RECORDING_SAVED = "com.example.capstone.RECORDING_SAVED"
-        // ★ 포트홀 감지 브로드캐스트 액션 추가
-        const val ACTION_POTHOLE_DETECTIONS = "com.example.capstone.POTHOLE_DETECTIONS"
     }
 }

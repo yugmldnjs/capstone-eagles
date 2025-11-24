@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
+import android.util.Log
 import android.view.View
 import com.example.capstone.ml.PotholeDetection
 
@@ -13,6 +14,10 @@ class PotholeOverlayView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
+
+    companion object {
+        private const val TAG = "PotholeOverlayView"
+    }
 
     private val boxPaint = Paint().apply {
         style = Paint.Style.STROKE
@@ -28,10 +33,10 @@ class PotholeOverlayView @JvmOverloads constructor(
         textSize = 36f
     }
 
-    @Volatile
     private var detections: List<PotholeDetection> = emptyList()
 
     fun updateDetections(newDetections: List<PotholeDetection>) {
+        Log.d(TAG, "updateDetections: size=${newDetections.size}")
         detections = newDetections
         invalidate()
     }
@@ -39,27 +44,26 @@ class PotholeOverlayView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
+        Log.d(TAG, "onDraw: size=${width}x$height, detections=${detections.size}")
+
         if (detections.isEmpty()) return
 
         val w = width.toFloat()
         val h = height.toFloat()
 
         for (det in detections) {
-            // PotholeDetection: cx, cy, w, h 가 0~1 범위라고 가정
             val cx = det.cx.coerceIn(0f, 1f)
             val cy = det.cy.coerceIn(0f, 1f)
-            val bw = det.w.coerceAtLeast(0.01f).coerceAtMost(1f)
-            val bh = det.h.coerceAtLeast(0.01f).coerceAtMost(1f)
+            val bw = det.w.coerceIn(0.01f, 1f)
+            val bh = det.h.coerceIn(0.01f, 1f)
 
             val left = (cx - bw / 2f) * w
             val top = (cy - bh / 2f) * h
             val right = (cx + bw / 2f) * w
             val bottom = (cy + bh / 2f) * h
 
-            val rect = RectF(left, top, right, bottom)
-            canvas.drawRect(rect, boxPaint)
+            canvas.drawRect(RectF(left, top, right, bottom), boxPaint)
 
-            // 점수 텍스트
             val scoreText = String.format("%.2f", det.score)
             canvas.drawText(scoreText, left, top - 8f, textPaint)
         }

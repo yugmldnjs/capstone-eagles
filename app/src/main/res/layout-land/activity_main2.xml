@@ -15,13 +15,18 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
 
-    <!-- ★ 포트홀 오버레이를 프리뷰 위에 겹치기 -->
+    <!-- 포트홀 박스 오버레이 (카메라 위에 그림) -->
     <com.example.capstone.PotholeOverlayView
         android:id="@+id/potholeOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@android:color/transparent"
         android:clickable="false"
-        android:focusable="false"/>
+        android:focusable="false"
+        app:layout_constraintTop_toTopOf="@id/viewFinder"
+        app:layout_constraintBottom_toBottomOf="@id/viewFinder"
+        app:layout_constraintStart_toStartOf="@id/viewFinder"
+        app:layout_constraintEnd_toEndOf="@id/viewFinder" />
 
     <FrameLayout
         android:id="@+id/fragment_container"
