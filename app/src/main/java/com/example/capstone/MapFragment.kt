@@ -41,6 +41,9 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         // ✅ 포트홀 병합 기준 거리 (m)
         private const val POTHOLE_MERGE_DISTANCE_METERS = 5.0
+
+        // ✅ 모델에서 포트홀 들어왔을 때 맵 반영 최소 간격 (ms)
+        private const val MIN_POTHOLE_EVENT_INTERVAL_MS = 2000L
     }
 
     private lateinit var naverMap: NaverMap
@@ -85,6 +88,9 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     private val potholePoints = mutableListOf<PotholeData>()
 
     private lateinit var potholeRepo: PotholeRepository
+
+    // ✅ 최근 포트홀 이벤트 시각
+    private var lastPotholeEventTime: Long = 0L
 
     /**
      * ✅ 더미 포트홀 데이터를 불러와 지도에 마커로 표시
@@ -137,7 +143,40 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         updatePotholeMarkers(potholePoints)
 
         // 🔻 이 부분은 모델 연동 시에만 활성화하면 됨 (지금은 주석 처리해도 괜찮아요)
-        // potholeRepo.uploadPothole(targetLat, targetLon)
+        potholeRepo.uploadPothole(targetLat, targetLon)
+
+        // 🔻 완전히 새로운 위치의 포트홀일 때만 DB에 기록
+        // if (isNew) {
+        //     potholeRepo.uploadPothole(targetLat, targetLon)
+        // }
+    }
+
+    /**
+     * ✅ 모델 감지 결과를 바탕으로
+     *    "현재 내 위치"에 포트홀을 추가하는 함수
+     *    - 너무 자주 찍히지 않도록 최소 간격도 적용
+     */
+    fun addPotholeFromCurrentLocationFromModel() {
+        val lat = lastLat
+        val lon = lastLon
+
+        if (lat == null || lon == null) {
+            Log.d(TAG, "addPotholeFromCurrentLocationFromModel: 위치 정보 없음, 무시")
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastPotholeEventTime < MIN_POTHOLE_EVENT_INTERVAL_MS) {
+            Log.d(TAG, "addPotholeFromCurrentLocationFromModel: 너무 짧은 간격, 무시")
+            return
+        }
+        lastPotholeEventTime = now
+
+        // 실제 포트홀 병합/마커 업데이트는 기존 로직 재사용
+        addOrMergePothole(lat, lon)
+
+        // 🔻 Firestore에 기록까지 하고 싶으면 여기에 추가 (비용 고려해서 나중에 켜기)
+        // potholeRepo.uploadPothole(lat, lon)
     }
 
     /**
@@ -372,8 +411,10 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         // ✅ 지도 준비 완료 후 혼잡도 리스너 시작
         startCongestionListener()
 
-        // ✅ 더미 포트홀 마커 표시
-        loadDummyPotholes()
+        // ⚙️ DEBUG: 더미 포트홀 표시 (실제 모델과 같이 쓰면 헷갈리니 필요할 때만 켜기)
+        // if (BuildConfig.SHOW_DUMMY_POTHOLES) {
+        //     loadDummyPotholes()
+        // }
     }
 
     /**
