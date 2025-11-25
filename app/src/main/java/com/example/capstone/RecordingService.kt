@@ -9,12 +9,14 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
+import android.location.Location
+import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.provider.MediaStore
 import android.util.Log
+import android.widget.Toast
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
@@ -26,11 +28,21 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.lifecycleScope
+import androidx.work.*
+import com.example.capstone.database.BikiDatabase
+import com.example.capstone.database.EventDao
+import com.example.capstone.database.EventEntity
+import com.example.capstone.worker.EventExtractionWorker
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
-class RecordingService : Service(), LifecycleOwner {
-
+class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener {
     private val lifecycleRegistry = LifecycleRegistry(this)
 
     override val lifecycle: Lifecycle
@@ -43,7 +55,14 @@ class RecordingService : Service(), LifecycleOwner {
     private var mainPreviewView: PreviewView? = null
     private var miniPreviewView: PreviewView? = null
     private var currentPreview: Preview? = null
-
+    private lateinit var sensorHandler: SensorHandler
+    private var currentVideoUri: Uri? = null
+    private var currentRecordingStartTime: Long = 0
+    private lateinit var fusedLocationClient: FusedLocationProviderClient  // 위치 정보 가져오기
+    var currentLocation: Location? = null
+    var currentSpeed: Float = 0f
+    private var lastImpactTimestamp: Long = 0
+    private lateinit var eventDao: EventDao
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
     }
@@ -57,6 +76,15 @@ class RecordingService : Service(), LifecycleOwner {
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
         lifecycleRegistry.currentState = Lifecycle.State.STARTED
         Log.d(TAG, "RecordingService onCreate()")
+
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        val database = BikiDatabase.getDatabase(this)
+        eventDao = database.eventDao()
+
+        // --- SensorHandler 인스턴스 생성 ---
+        sensorHandler = SensorHandler(this, this)
+
+
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
         lifecycleRegistry.currentState = Lifecycle.State.RESUMED
@@ -180,32 +208,79 @@ class RecordingService : Service(), LifecycleOwner {
 
         Log.d(TAG, "Preparing to start recording...")
 
+        currentRecordingStartTime = System.currentTimeMillis()
+
+        // 1. 위치 권한이 있는지 먼저 확인합니다.
+        val hasLocationPermission = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasLocationPermission) {
+            // 2. 권한이 있으면 현재 위치를 요청합니다. (비동기)
+            try {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                    if (location != null) {
+                        Log.d(TAG, "위치 확보 성공: ${location.latitude}, ${location.longitude}")
+                        // 위치를 찾았으면 위치 정보를 포함해서 녹화 시작
+                        startRecordingInternal(videoCapture, location)
+                    } else {
+                        Log.w(TAG, "위치 정보 null (GPS 미수신 등)")
+                        // 위치를 못 찾았으면 그냥 녹화 시작
+                        startRecordingInternal(videoCapture, null)
+                    }
+                }.addOnFailureListener {
+                    Log.e(TAG, "위치 정보 요청 실패", it)
+                    startRecordingInternal(videoCapture, null)
+                }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "위치 권한 보안 예외", e)
+                startRecordingInternal(videoCapture, null)
+            }
+        } else {
+            // 3. 권한이 없으면 바로 녹화 시작 (위치 없음)
+            Log.w(TAG, "위치 권한 없음")
+            startRecordingInternal(videoCapture, null)
+        }
+    }
+
+    // [수정됨] 실제 녹화를 수행하는 내부 함수
+    private fun startRecordingInternal(videoCapture: VideoCapture<Recorder>, location: Location?) {
+        Log.d(TAG, "startRecordingInternal - Location included: ${location != null}")
         val name = "Blackbox-${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
-            .format(System.currentTimeMillis())}.mp4"
+            .format(currentRecordingStartTime)}.mp4"
 
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            put(MediaStore.MediaColumns.DATE_TAKEN, currentRecordingStartTime)
             if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MyBlackboxVideos")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MyBlackboxVideos/Full")
             }
         }
 
-        val mediaStoreOutputOptions = MediaStoreOutputOptions
+        val outputOptionsBuilder = MediaStoreOutputOptions
             .Builder(contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
             .setContentValues(contentValues)
-            .build()
+        if (location != null) {
+            outputOptionsBuilder.setLocation(location)
+        }
+        // 3. 설정을 다 넣은 뒤에 build()를 호출합니다.
+        val mediaStoreOutputOptions = outputOptionsBuilder.build()
 
         val audioPermission = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.RECORD_AUDIO
         )
 
+
         Log.d(TAG, "Audio permission granted: ${audioPermission == PackageManager.PERMISSION_GRANTED}")
 
         try {
-            recording = videoCapture.output
+            val pendingRecording = videoCapture.output
                 .prepareRecording(this, mediaStoreOutputOptions)
+
+            // 녹화 시작
+            recording = pendingRecording
                 .apply {
                     if (audioPermission == PackageManager.PERMISSION_GRANTED) {
                         withAudioEnabled()
@@ -214,21 +289,37 @@ class RecordingService : Service(), LifecycleOwner {
                 .start(ContextCompat.getMainExecutor(this)) { recordEvent ->
                     when (recordEvent) {
                         is VideoRecordEvent.Start -> {
+                            lastImpactTimestamp = 0L
                             updateNotification("녹화 중...")
                             sendBroadcast(Intent(ACTION_RECORDING_STARTED))
                             Log.d(TAG, "녹화 시작 성공!")
                         }
                         is VideoRecordEvent.Finalize -> {
                             if (!recordEvent.hasError()) {
-                                val msg = "영상 저장 완료: ${recordEvent.outputResults.outputUri}"
+                                currentVideoUri = recordEvent.outputResults.outputUri
+
+                                val msg = "영상 저장 완료"
                                 Log.d(TAG, msg)
                                 sendBroadcast(Intent(ACTION_RECORDING_SAVED).apply {
                                     putExtra("message", msg)
                                 })
+
+                                // ✅ 핵심: 이 녹화 세션의 pending 이벤트들 업데이트
+                                updatePendingEventsWithUri(
+                                    currentRecordingStartTime,
+                                    currentVideoUri!!
+                                )
+                                // WorkManager 예약
+                                scheduleEventExtraction(currentVideoUri!!)
+
+
+
                             } else {
                                 Log.e(TAG, "영상 저장 실패: ${recordEvent.error}")
                             }
                             recording = null
+                            currentRecordingStartTime = 0
+                            currentVideoUri = null
                             updateNotification("카메라 대기 중")
                             sendBroadcast(Intent(ACTION_RECORDING_STOPPED))
                         }
@@ -239,11 +330,16 @@ class RecordingService : Service(), LifecycleOwner {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start recording", e)
             recording = null
+            currentRecordingStartTime = 0
         }
+        sensorHandler.start()
+        LogToFileHelper.startLogging(this, "SensorLog")
     }
 
     fun stopRecording() {
         Log.d(TAG, "stopRecording() called")
+        sensorHandler.stop()
+        LogToFileHelper.stopLogging()
 
         val currentRecording = recording
         if (currentRecording == null) {
@@ -307,11 +403,155 @@ class RecordingService : Service(), LifecycleOwner {
         manager.notify(NOTIFICATION_ID, notification)
     }
 
+    override fun onImpactDetected(linearAccel: FloatArray, totalAccel: Float) {
+        val timestamp = System.currentTimeMillis()
+        if (timestamp - lastImpactTimestamp < 30000) {
+            Log.d(TAG, "쿨다운 시간 내의 중복 충격 감지. 무시합니다.")
+            return
+        }
+        lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
+
+
+        checkLocationPermission(timestamp, linearAccel, null)
+    }
+
+    override fun onSuddenBrakeDetected(linearAccel: FloatArray, horizontalAccel: Float) {
+        val timestamp = System.currentTimeMillis()
+        if (timestamp - lastImpactTimestamp < 30000) {
+            Log.d(TAG, "쿨다운 시간 내의 중복 충격 감지. 무시합니다.")
+            return
+        }
+        lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
+
+
+        checkLocationPermission(timestamp, linearAccel, null)
+    }
+
+    override fun onFallDetected(rotation: FloatArray, totalRotation: Float) {
+        val timestamp = System.currentTimeMillis()
+        if (timestamp - lastImpactTimestamp < 30000) {
+            Log.d(TAG, "쿨다운 시간 내의 중복 충격 감지. 무시합니다.")
+            return
+        }
+        lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
+
+
+        checkLocationPermission(timestamp, floatArrayOf(0f, 0f, 0f), rotation)
+    }
+
+    private fun checkLocationPermission(timestamp: Long, accelData: FloatArray, gyroData: FloatArray?) {
+        // --- ⬇️ 여기가 핵심 수정 부분: 위치 정보를 동기적으로 가져와서 이벤트 생성 ⬇️ ---
+        try {
+            // 1. 위치 권한을 다시 한번 확인합니다.
+            val hasLocationPermission = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (hasLocationPermission) {
+                // 2. 현재 위치를 요청하고, 성공/실패에 따라 EventEntity를 생성합니다.
+                fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                    Log.d(TAG, "충격 감지 시 위치 확보: ${location?.latitude}, ${location?.longitude}")
+                    // 위치 정보와 함께 EventEntity를 생성하고 DB에 저장합니다.
+                    createAndSaveEvent(timestamp, location, accelData, gyroData)
+                }.addOnFailureListener {
+                    Log.e(TAG, "충격 감지 시 위치 정보 요청 실패", it)
+                    // 위치를 못 찾았더라도 이벤트는 기록되어야 하므로, 위치 정보 없이 생성합니다.
+                    createAndSaveEvent(timestamp, null, accelData, gyroData)
+                }
+            } else {
+                Log.w(TAG, "충격 감지 시 위치 권한 없음")
+                // 권한이 없으면 위치 정보 없이 생성합니다.
+                createAndSaveEvent(timestamp, null, accelData, gyroData)
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "충격 감지 시 위치 권한 보안 예외", e)
+            createAndSaveEvent(timestamp, null, accelData, gyroData)
+        }
+        // --- ⬆️ 수정 끝 ⬆️ ---
+    }
+
+    // EventEntity를 생성하고 저장하는 헬퍼 함수 (코드 중복 방지)
+    private fun createAndSaveEvent(
+        timestamp: Long,
+        location: Location?,
+        accelData: FloatArray,
+        gyroData: FloatArray?
+    ) {
+        Log.d(TAG, "location: ${location?.latitude}, ${location?.longitude}")
+        val event = EventEntity(
+            timestamp = timestamp,
+            recordingStartTimestamp = currentRecordingStartTime,
+            type = "impact",
+            latitude = location?.latitude,
+            longitude = location?.longitude,
+            speed = currentSpeed,
+            accelerometerX = accelData[0],
+            accelerometerY = accelData[1],
+            accelerometerZ = accelData[2],
+            gyroX = gyroData?.get(0),
+            gyroY = gyroData?.get(1),
+            gyroZ = gyroData?.get(2),
+            videoUri = null,
+            extractedVideoPath = null,
+            status = "pending"
+        )
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                eventDao.insert(event)
+                Log.d(TAG, "✅ DB 저장 성공! (위치 포함: ${location != null})")
+            } catch (e: Exception) {
+                Log.e(TAG, "DB 저장 중 오류 발생", e)
+            }
+        }
+
+        GlobalScope.launch(Dispatchers.Main) {
+            Toast.makeText(applicationContext, "충격이 감지되었습니다.", Toast.LENGTH_SHORT).show()
+        }
+        Log.d(TAG, "⚡ 충격 이벤트 마커 저장 로직 완료: $timestamp")
+    }
+
+    // ✅ Finalize에서 호출: URI로 pending 이벤트들 업데이트
+    private fun updatePendingEventsWithUri(recordingStartTimestamp: Long, uri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            // 해당 녹화 세션의 이벤트들 찾기
+            val pendingEvents = eventDao.getPendingExtractions()
+                .filter { it.recordingStartTimestamp == recordingStartTimestamp }
+
+            // URI로 업데이트
+            pendingEvents.forEach { event ->
+                eventDao.update(event.copy(
+                    videoUri = uri.toString()
+                ))
+            }
+
+            Log.d(TAG, "✅ ${pendingEvents.size}개 이벤트 URI 업데이트 완료")
+        }
+    }
+
+    private fun scheduleEventExtraction(uri: Uri) {
+        val workRequest = OneTimeWorkRequestBuilder<EventExtractionWorker>()
+            .setInputData(
+                workDataOf("video_uri" to uri.toString())
+            )
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiresBatteryNotLow(true)  // 배터리 20% 이상일 때만
+                    .build()
+            )
+            .build()
+
+        WorkManager.getInstance(this).enqueue(workRequest)
+        Log.d(TAG, "📋 이벤트 추출 작업 예약: $uri")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         recording?.stop()
         cameraProvider?.unbindAll()
+        sensorHandler.stop()
+        LogToFileHelper.stopLogging()
     }
 
     companion object {

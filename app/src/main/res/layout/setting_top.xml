@@ -1,17 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
-    <TextView
-        android:layout_marginTop="10dp"
-        android:layout_width="match_parent"
+    <LinearLayout
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="설정"
-        android:gravity="center"
-        android:textSize="20dp"
-        android:textStyle="bold"/>
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:layout_margin="5dp"
+            android:id="@+id/setting_backBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:srcCompat="@drawable/backbtn"
+            android:background="@android:color/transparent"
+            />
+
+        <TextView
+            android:layout_marginTop="10dp"
+            android:layout_marginStart="127dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="설정"
+            android:gravity="center"
+            android:textSize="20dp"
+            android:textStyle="bold"/>
+
+
+
+    </LinearLayout>
 
 
     <ImageView
@@ -19,7 +39,7 @@
         android:layout_gravity="center"
         android:layout_width="150dp"
         android:layout_height="150dp"
-        android:src="@drawable/profile_orang"
+        android:src="@drawable/profile_origin2"
         android:scaleType="centerCrop"
         android:contentDescription="설정 화면 프로필 이미지" />
 

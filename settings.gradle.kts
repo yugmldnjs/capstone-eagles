@@ -21,6 +21,7 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven("https://repository.map.naver.com/archive/maven")
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

@@ -9,8 +9,9 @@
     <ImageView
         android:id="@+id/thumbnailImageView"
         android:layout_width="100dp"
-        android:layout_height="100dp"
-        android:src="@drawable/copy" />
+        android:layout_height="110dp"
+        android:src="@drawable/loading"
+        android:background="@android:color/transparent"/>
 
     <LinearLayout
         android:layout_width="209dp"
