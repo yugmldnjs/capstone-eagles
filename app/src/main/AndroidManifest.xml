@@ -19,6 +19,7 @@
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
 
     <uses-permission android:name="android.permission.INTERNET" /> <!-- Tmap API -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
 
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -80,7 +81,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:theme="@style/Theme.Capstone.EdgeToEdge" />
-        <activity android:name=".FindEmailActivity" />
-        <activity android:name=".FindPasswordActivity" />
+
     </application>
 </manifest>
