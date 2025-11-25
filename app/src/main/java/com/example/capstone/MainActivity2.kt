@@ -23,8 +23,18 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.OnBackPressedCallback
+import com.example.capstone.ml.PotholeDetection
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+
 
 class MainActivity2 : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "PotholeReceiver"
+    }
 
     private lateinit var binding: ActivityMain2Binding
     private val viewModel: MainViewModel by viewModels()
@@ -41,6 +51,36 @@ class MainActivity2 : AppCompatActivity() {
     private var originalBrightness: Float = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     private var isPowerSavingActive = false
 
+    private val potholeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            Log.d("PotholeReceiver", "onReceive: intent=$intent, action=${intent?.action}")
+
+            // 액션 체크
+            if (intent?.action != RecordingService.ACTION_POTHOLE_DETECTIONS) {
+                Log.d("PotholeReceiver", "ignored action=${intent?.action}")
+                return
+            }
+
+            // ★ API 33(Tiramisu)+ 에서는 클래스까지 넘겨주는 버전을 써야 안전함
+            val detections: ArrayList<PotholeDetection> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(
+                    "detections",
+                    PotholeDetection::class.java
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayListExtra<PotholeDetection>("detections")
+            } ?: arrayListOf()
+
+            Log.d("PotholeReceiver", "received detections size=${detections.size}")
+
+            // 오버레이에 전달 (UI 스레드에서)
+            runOnUiThread {
+                binding.potholeOverlay.updateDetections(detections)
+            }
+        }
+    }
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as RecordingService.LocalBinder
@@ -56,6 +96,27 @@ class MainActivity2 : AppCompatActivity() {
             binding.viewFinder.post {
                 binding.miniCamera.post {
                     recordingService?.setPreviewViews(binding.viewFinder, binding.miniCamera)
+
+                    // ✅ 포트홀 감지 결과 콜백 등록
+                    recordingService?.setPotholeListener { detections ->
+                        runOnUiThread {
+                            // 1) 카메라 위 박스 오버레이 업데이트 (기존 동작 유지)
+                            binding.potholeOverlay.updateDetections(detections)
+
+                            // 2) 지도용 포트홀 이벤트 트리거
+                            //    - 가장 높은 score 하나만 보고
+                            //    - score, 위치(cy) 기준으로 한 번 더 필터
+                            val best = detections.maxByOrNull { it.score }
+
+                            if (best != null &&
+                                best.score >= 0.6f &&   // 필요하면 0.5 ~ 0.7 사이로 조절
+                                best.cy > 0.5f          // 화면 아래쪽(내 자전거 앞)만 인정
+                            ) {
+                                // 현재 GPS 위치 기준으로 포트홀 추가
+                                mapFragment.addPotholeFromCurrentLocationFromModel()
+                            }
+                        }
+                    }
 
                     // 서비스 상태를 ViewModel에 동기화
                     viewModel.setRecordingState(recordingService?.isRecording() ?: false)
@@ -75,7 +136,7 @@ class MainActivity2 : AppCompatActivity() {
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
                 Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.POST_NOTIFICATIONS 
+                Manifest.permission.POST_NOTIFICATIONS
             )
         } else {
             arrayOf(
@@ -168,8 +229,22 @@ class MainActivity2 : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(recordingReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(recordingReceiver, filter)
         }
+
+        // ★ 포트홀 감지 결과 리시버 등록
+        val potholeFilter = IntentFilter().apply {
+            addAction(RecordingService.ACTION_POTHOLE_DETECTIONS)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(potholeReceiver, potholeFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(potholeReceiver, potholeFilter)
+        }
+
+        Log.d(TAG, "PotholeReceiver registered")
 
         setupClickListeners()
         observeViewModel()
@@ -560,6 +635,8 @@ class MainActivity2 : AppCompatActivity() {
         super.onDestroy()
         if (serviceBound) {
             //recordingService?.setSensorCallback(null) // 콜백 해제 추가
+            // ✅ 액티비티가 사라질 때 콜백 끊기
+            recordingService?.setPotholeListener(null)
             unbindService(serviceConnection)
             serviceBound = false
         }
@@ -571,6 +648,11 @@ class MainActivity2 : AppCompatActivity() {
 
         try {
             unregisterReceiver(recordingReceiver)
+        } catch (e: Exception) {
+            // 이미 해제된 경우 무시
+        }
+        try {
+            unregisterReceiver(potholeReceiver)
         } catch (e: Exception) {
             // 이미 해제된 경우 무시
         }

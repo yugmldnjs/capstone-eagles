@@ -28,8 +28,23 @@ import com.example.capstone.utils.CongestionCluster
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ListenerRegistration
 import kotlin.math.*
+import com.example.capstone.data.PotholeData
+import com.example.capstone.data.PotholeRepository
+import com.example.capstone.dummy.PotholeDummyData
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
+
+    companion object {
+        private const val TAG = "MapFragment"
+        private const val UPLOAD_DISTANCE_THRESHOLD = 10.0 // 10m
+        private const val UPLOAD_TIME_THRESHOLD = 30000L // 30초
+
+        // ✅ 포트홀 병합 기준 거리 (m)
+        private const val POTHOLE_MERGE_DISTANCE_METERS = 5.0
+
+        // ✅ 모델에서 포트홀 들어왔을 때 맵 반영 최소 간격 (ms)
+        private const val MIN_POTHOLE_EVENT_INTERVAL_MS = 2000L
+    }
 
     private lateinit var naverMap: NaverMap
     private lateinit var mapView: MapView
@@ -66,11 +81,173 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     private val clusterCircles = mutableListOf<CircleOverlay>() // 원형 오버레이 저장
     private val clusterMarkers = mutableListOf<Marker>() // 마커 리스트
 
+    // ✅ 포트홀 마커 리스트
+    private val potholeMarkers = mutableListOf<Marker>()
+
+    // ✅ 포트홀 좌표 리스트 (중복 제거용)
+    private val potholePoints = mutableListOf<PotholeData>()
+
+    private lateinit var potholeRepo: PotholeRepository
+
+    // ✅ 최근 포트홀 이벤트 시각
+    private var lastPotholeEventTime: Long = 0L
+    private var potholeListener: ListenerRegistration? = null
+
+    /**
+     * ✅ 더미 포트홀 데이터를 불러와 지도에 마커로 표시
+     */
+    private fun loadDummyPotholes() {
+        val dummyList = PotholeDummyData.generate()
+
+        potholePoints.clear()
+        dummyList.forEach { pothole ->
+            addOrMergePothole(pothole.latitude, pothole.longitude)
+        }
+    }
+
+    private fun startPotholeListener() {
+        // 혹시 살아 있는 리스너 있으면 정리
+        potholeListener?.remove()
+
+        potholeListener = potholeRepo.listenAllPotholes { serverPotholes ->
+            if (!isMapReady) return@listenAllPotholes
+
+            // 서버 기준으로 로컬 리스트 갱신
+            potholePoints.clear()
+            potholePoints.addAll(serverPotholes)
+
+            // 지도 마커 업데이트
+            updatePotholeMarkers(potholePoints)
+        }
+    }
+
+    /**
+     * ✅ 새 포트홀 좌표를 추가하거나,
+     *    근처에 기존 포인트가 있으면 합치는 함수
+     */
+    private fun addOrMergePothole(lat: Double, lon: Double) {
+        val existing = potholePoints.firstOrNull { p ->
+            calculateDistance(p.latitude, p.longitude, lat, lon) < POTHOLE_MERGE_DISTANCE_METERS
+        }
+
+        val targetLat: Double
+        val targetLon: Double
+
+        if (existing != null) {
+            val updated = existing.copy(
+                count = existing.count + 1,
+                createdAt = System.currentTimeMillis()
+            )
+            val index = potholePoints.indexOf(existing)
+            potholePoints[index] = updated
+
+            targetLat = updated.latitude
+            targetLon = updated.longitude
+        } else {
+            val newPothole = PotholeData(
+                id = null,
+                latitude = lat,
+                longitude = lon,
+                createdAt = System.currentTimeMillis(),
+                count = 1
+            )
+            potholePoints.add(newPothole)
+
+            targetLat = newPothole.latitude
+            targetLon = newPothole.longitude
+        }
+
+        updatePotholeMarkers(potholePoints)
+
+        // 🔻 이 부분은 모델 연동 시에만 활성화하면 됨 (지금은 주석 처리해도 괜찮아요)
+        potholeRepo.uploadPothole(targetLat, targetLon)
+
+        // 🔻 완전히 새로운 위치의 포트홀일 때만 DB에 기록
+        // if (isNew) {
+        //     potholeRepo.uploadPothole(targetLat, targetLon)
+        // }
+    }
+
+    /**
+     * ✅ 모델 감지 결과를 바탕으로
+     *    "현재 내 위치"에 포트홀을 추가하는 함수
+     *    - 너무 자주 찍히지 않도록 최소 간격도 적용
+     */
+    fun addPotholeFromCurrentLocationFromModel() {
+        val lat = lastLat
+        val lon = lastLon
+
+        if (lat == null || lon == null) {
+            Log.d(TAG, "addPotholeFromCurrentLocationFromModel: 위치 정보 없음, 무시")
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastPotholeEventTime < MIN_POTHOLE_EVENT_INTERVAL_MS) {
+            Log.d(TAG, "addPotholeFromCurrentLocationFromModel: 너무 짧은 간격, 무시")
+            return
+        }
+        lastPotholeEventTime = now
+
+        // 실제 포트홀 병합/마커 업데이트는 기존 로직 재사용
+        addOrMergePothole(lat, lon)
+
+        // 🔻 Firestore에 기록까지 하고 싶으면 여기에 추가 (비용 고려해서 나중에 켜기)
+        // potholeRepo.uploadPothole(lat, lon)
+    }
+
+    /**
+     * ✅ 포트홀 마커 업데이트 (재사용 방식)
+     */
+    private fun updatePotholeMarkers(potholes: List<PotholeData>) {
+        if (!isMapReady) return
+
+        // 마커 풀을 필요한 만큼 늘리기
+        while (potholeMarkers.size < potholes.size) {
+            potholeMarkers.add(Marker().apply {
+                icon = OverlayImage.fromResource(
+                    com.naver.maps.map.R.drawable.navermap_default_marker_icon_black
+                )
+                width = 70
+                height = 70
+            })
+        }
+
+        potholes.forEachIndexed { index, pothole ->
+            val marker = potholeMarkers[index]
+            marker.position = LatLng(pothole.latitude, pothole.longitude)
+            marker.map = naverMap
+
+            marker.setOnClickListener {
+                // ✅ 포트홀 위치로 부드럽게 줌인
+                isProgrammaticMove = true
+                val cameraPosition = CameraPosition(
+                    LatLng(pothole.latitude, pothole.longitude),
+                    17.0  // 혼잡도보다 조금 더 확대하고 싶으면 17~18 정도
+                )
+                val cameraUpdate = CameraUpdate
+                    .toCameraPosition(cameraPosition)
+                    .animate(CameraAnimation.Easing)
+
+                naverMap.moveCamera(cameraUpdate)
+                true
+            }
+        }
+
+        // 남는 마커들은 지도에서만 숨기고 객체는 재사용
+        for (i in potholes.size until potholeMarkers.size) {
+            potholeMarkers[i].map = null
+        }
+    }
+
+
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         repo = LocationRepository()
         auth = FirebaseAuth.getInstance()
+        potholeRepo = PotholeRepository()
 
         // 1) 네이버 맵 초기화
         mapView = view.findViewById(R.id.map_view)
@@ -250,6 +427,14 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         // ✅ 지도 준비 완료 후 혼잡도 리스너 시작
         startCongestionListener()
+
+        // ✅ 포트홀 리스너도 시작 (FireStore → 지도)
+        startPotholeListener()
+
+        // ⚙️ DEBUG: 더미 포트홀 표시 (실제 모델과 같이 쓰면 헷갈리니 필요할 때만 켜기)
+        // if (BuildConfig.SHOW_DUMMY_POTHOLES) {
+        //     loadDummyPotholes()
+        // }
     }
 
     /**
@@ -487,7 +672,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     }
 
     /**
-     * ✅ 모든 오버레이 제거 (원형 + 마커)
+     * ✅ 모든 오버레이 제거 (원형 + 혼잡도 마커 + 포트홀 마커)
      *  - onDestroyView 에서 완전히 정리할 때만 사용
      */
     private fun clearAllOverlays() {
@@ -510,6 +695,16 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             }
         }
         clusterMarkers.clear()
+
+        // ✅ 포트홀 마커 제거
+        potholeMarkers.forEach { marker ->
+            try {
+                marker.map = null
+            } catch (e: Exception) {
+                Log.w(TAG, "포트홀 마커 제거 실패", e)
+            }
+        }
+        potholeMarkers.clear()
     }
 
     private fun mergeNearbyClusters(
@@ -630,6 +825,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         if (isMapReady && locationListener == null) {
             startCongestionListener()
         }
+
+        // ✅ 포트홀 리스너 재시작
+        if (isMapReady && potholeListener == null) {
+            startPotholeListener()
+        }
     }
 
     override fun onPause() {
@@ -656,6 +856,10 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         locationListener?.remove()
         locationListener = null
 
+        // ✅ 포트홀 리스너 해제
+        potholeListener?.remove()
+        potholeListener = null
+
         // ✅ 모든 오버레이 제거 (다음에 다시 생성)
         clearAllOverlays()
 
@@ -680,11 +884,5 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         ) {
             startLocationUpdates()
         }
-    }
-
-    companion object {
-        private const val TAG = "MapFragment"
-        private const val UPLOAD_DISTANCE_THRESHOLD = 10.0 // 10m
-        private const val UPLOAD_TIME_THRESHOLD = 30000L // 30초
     }
 }

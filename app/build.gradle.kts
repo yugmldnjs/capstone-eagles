@@ -34,6 +34,9 @@ android {
     buildTypes {
         getByName("debug") {
             buildConfigField("boolean", "USE_DUMMY_BIKE_DATA", "true")
+
+            // 디버그 빌드에서는 더미 포트홀 ON
+            buildConfigField("boolean", "SHOW_DUMMY_POTHOLES", "true")
         }
         getByName("release") {
             isMinifyEnabled = false
@@ -42,6 +45,9 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("boolean", "USE_DUMMY_BIKE_DATA", "false")
+
+            // 릴리즈 빌드에서는 더미 포트홀 OFF
+            buildConfigField("boolean", "SHOW_DUMMY_POTHOLES", "false")
         }
     }
 
@@ -51,6 +57,16 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+    }
+
+    // assets 폴더 지정
+    sourceSets["main"].assets.srcDirs("src/main/assets")
+
+    // tflite 파일은 압축하지 않도록
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
 }
 
@@ -106,6 +122,9 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation (files("libs/ffmpeg-kit-full-gpl-6.0-2.LTS.aar")) // [웹 사이트에서 aar 파일 다운로드 받은 후 안드로이드 프로젝트 libs 폴더에 추가]
     implementation ("com.arthenica:smart-exception-java:0.2.1")
+
+    // TensorFlow Lite 기본 runtime
+    implementation("org.tensorflow:tensorflow-lite:2.13.0")
 }
 
 // Tmap 앱키 안전하게 읽기

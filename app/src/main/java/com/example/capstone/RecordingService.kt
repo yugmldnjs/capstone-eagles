@@ -41,8 +41,38 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.camera.core.ImageAnalysis
+import android.util.Size
+import com.example.capstone.ml.PotholeDetector
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import androidx.camera.core.UseCase
+import com.example.capstone.ml.PotholeDetection
+import android.os.Handler
+import android.os.Looper
+
 
 class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener {
+class RecordingService : Service(), LifecycleOwner {
+
+    companion object {
+        private const val TAG = "RecordingService"
+        private const val CHANNEL_ID = "recording_channel"
+        private const val NOTIFICATION_ID = 1
+        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
+
+        const val ACTION_RECORDING_STARTED = "com.example.capstone.RECORDING_STARTED"
+        const val ACTION_RECORDING_STOPPED = "com.example.capstone.RECORDING_STOPPED"
+        const val ACTION_RECORDING_SAVED = "com.example.capstone.RECORDING_SAVED"
+        // ★ 포트홀 감지 브로드캐스트 액션 추가
+        const val ACTION_POTHOLE_DETECTIONS = "com.example.capstone.POTHOLE_DETECTIONS"
+    }
+
+    // 메인 스레드로 결과를 보내기 위한 핸들러
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    // 포트홀 감지 결과를 받을 리스너 (액티비티에서 등록)
+    private var potholeListener: ((List<PotholeDetection>) -> Unit)? = null
     private val lifecycleRegistry = LifecycleRegistry(this)
 
     override val lifecycle: Lifecycle
@@ -63,6 +93,22 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
     var currentSpeed: Float = 0f
     private var lastImpactTimestamp: Long = 0
     private lateinit var eventDao: EventDao
+
+    private var imageAnalysis: ImageAnalysis? = null
+
+    // 포트홀 감지용 TFLite 래퍼
+    private var potholeDetector: PotholeDetector? = null
+
+    // 분석용 전용 스레드
+    private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    // 감지 결과 브로드캐스트 간 최소 간격 (ms)
+    private var lastDetectionBroadcastTime: Long = 0L
+
+    fun setPotholeListener(listener: ((List<PotholeDetection>) -> Unit)?) {
+        potholeListener = listener
+    }
+
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
     }
@@ -88,6 +134,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
         lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+
+        // ★ 포트홀 감지 모델 초기화
+        potholeDetector = PotholeDetector(this)
     }
 
     fun setPreviewViews(mainPreview: PreviewView, miniPreview: PreviewView) {
@@ -156,13 +205,13 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
 
         Log.d(TAG, "bindCamera called, isRecording=${recording != null}")
 
-        // Preview는 1개만 생성
+        // 1) Preview (하나만 생성)
         val preview = Preview.Builder().build()
         preview.setSurfaceProvider(mainPreviewView.surfaceProvider)
         currentPreview = preview
         Log.d(TAG, "Single preview created")
 
-        // VideoCapture는 한 번만 생성
+        // 2) VideoCapture (기존 코드 유지)
         if (videoCapture == null) {
             val recorder = Recorder.Builder()
                 .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
@@ -173,25 +222,75 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
             Log.d(TAG, "VideoCapture already exists")
         }
 
+        // 3) ImageAnalysis (포트홀 감지용)
+        val detector = potholeDetector
+        if (detector == null) {
+            Log.e(TAG, "PotholeDetector is null, skip ImageAnalysis")
+        } else {
+            imageAnalysis = ImageAnalysis.Builder()
+                // YOLO 입력 크기에 맞춤 (320x320)
+                .setTargetResolution(Size(320, 320))
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build().also { analysis ->
+                    analysis.setAnalyzer(analysisExecutor) { image ->
+                        try {
+                            val detections = detector.detect(image)
+
+                            // ✅ 1) 리스너로 직접 전달 (UI 업데이트용)
+                            potholeListener?.let { listener ->
+                                mainHandler.post {
+                                    listener(detections)
+                                }
+                            }
+
+                            // ✅ 2) 그대로 브로드캐스트도 유지 (나중에 필요하면 활용)
+                            broadcastPotholeDetections(detections)
+
+                            if (detections.isNotEmpty()) {
+                                val maxScore = detections.maxOf { it.score }
+                                Log.d(
+                                    TAG,
+                                    "Pothole detected: count=${detections.size}, topScore=$maxScore"
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error during pothole detection", e)
+                        } finally {
+                            image.close()
+                        }
+                    }
+                }
+        }
+
         val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
         try {
             cameraProvider.unbindAll()
             Log.d(TAG, "Camera unbound")
 
-            // Preview 1개 + VideoCapture 1개만 바인딩
+            // 4) Preview + VideoCapture (+ ImageAnalysis) 바인딩
+            val useCases = mutableListOf<UseCase>(preview, videoCapture!!)
+
+            imageAnalysis?.let { analysis ->
+                useCases.add(analysis)
+            }
+
             camera = cameraProvider.bindToLifecycle(
                 this,
                 cameraSelector,
-                preview,
-                videoCapture
+                *useCases.toTypedArray()
             )
-            Log.d(TAG, "Camera bound successfully (Preview + VideoCapture)")
+
+            Log.d(
+                TAG,
+                "Camera bound successfully (Preview + VideoCapture${if (imageAnalysis != null) " + ImageAnalysis" else ""})"
+            )
             updateNotification("카메라 대기 중")
         } catch (e: Exception) {
             Log.e(TAG, "Camera binding failed", e)
         }
     }
+
 
     fun startRecording() {
         Log.d(TAG, "startRecording() called")
@@ -545,6 +644,32 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         Log.d(TAG, "📋 이벤트 추출 작업 예약: $uri")
     }
 
+    private fun broadcastPotholeDetections(detections: List<PotholeDetection>) {
+        val now = System.currentTimeMillis()
+        // 너무 자주 쏘면 부담되니 200ms 간격으로 제한
+        if (now - lastDetectionBroadcastTime < 200L) return
+        lastDetectionBroadcastTime = now
+
+        // Intent 생성
+        val intent = Intent(ACTION_POTHOLE_DETECTIONS)
+
+        // Parcelable ArrayList로 넣기
+        intent.putParcelableArrayListExtra(
+            "detections",
+            ArrayList<PotholeDetection>(detections)
+        )
+
+        // ★ 여기 로그 추가
+        Log.d(
+            TAG,
+            "broadcastPotholeDetections() sending ${detections.size} detections"
+        )
+
+        // 브로드캐스트 전송
+        sendBroadcast(intent)
+    }
+
+
     override fun onDestroy() {
         super.onDestroy()
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
@@ -554,14 +679,15 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         LogToFileHelper.stopLogging()
     }
 
-    companion object {
-        private const val TAG = "RecordingService"
-        private const val CHANNEL_ID = "recording_channel"
-        private const val NOTIFICATION_ID = 1
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
+        // ★ 분석 리소스 정리
+        try {
+            imageAnalysis?.clearAnalyzer()
+        } catch (_: Exception) { }
+        imageAnalysis = null
 
-        const val ACTION_RECORDING_STARTED = "com.example.capstone.RECORDING_STARTED"
-        const val ACTION_RECORDING_STOPPED = "com.example.capstone.RECORDING_STOPPED"
-        const val ACTION_RECORDING_SAVED = "com.example.capstone.RECORDING_SAVED"
+        potholeDetector?.close()
+        potholeDetector = null
+
+        analysisExecutor.shutdown()
     }
 }
