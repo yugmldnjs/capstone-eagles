@@ -27,7 +27,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "TMAP_API_KEY", "\"${getTmapApiKey()}\"")
         manifestPlaceholders["NAVER_MAP_CLIENT_ID"] = getNaverMapClientId()
     }
 
@@ -105,10 +104,6 @@ dependencies {
     implementation("com.github.bumptech.glide:glide:4.16.0")
     kapt("com.github.bumptech.glide:compiler:4.16.0")
 
-    // Tmap API
-    implementation(files("libs/tmap-sdk-3.0.aar"))
-    implementation(files("libs/vsm-tmap-sdk-v2-android-1.7.45.aar"))
-
     implementation("com.google.android.gms:play-services-location:21.0.1")
 
     // 네이버 지도 SDK
@@ -126,17 +121,6 @@ dependencies {
     // TensorFlow Lite 기본 runtime
     implementation("org.tensorflow:tensorflow-lite:2.13.0")
 }
-
-// Tmap 앱키 안전하게 읽기
-fun getTmapApiKey(): String {
-    val properties = Properties()
-    val localPropsFile = rootProject.file("local.properties")
-    if (localPropsFile.exists()) {
-        FileInputStream(localPropsFile).use { properties.load(it) }
-    }
-    return properties.getProperty("TMAP_API_KEY", "")
-}
-
 fun getNaverMapClientId(): String {
     val properties = Properties()
     val localPropsFile = rootProject.file("local.properties")

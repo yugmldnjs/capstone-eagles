@@ -53,7 +53,6 @@ import android.os.Looper
 
 
 class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener {
-class RecordingService : Service(), LifecycleOwner {
 
     companion object {
         private const val TAG = "RecordingService"
@@ -677,7 +676,6 @@ class RecordingService : Service(), LifecycleOwner {
         cameraProvider?.unbindAll()
         sensorHandler.stop()
         LogToFileHelper.stopLogging()
-    }
 
         // ★ 분석 리소스 정리
         try {
