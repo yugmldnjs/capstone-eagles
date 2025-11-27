@@ -13,6 +13,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.setPadding
 import androidx.fragment.app.Fragment
+import androidx.preference.PreferenceManager
 import com.google.android.gms.location.*
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.*
@@ -92,6 +93,9 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     // ✅ 최근 포트홀 이벤트 시각
     private var lastPotholeEventTime: Long = 0L
     private var potholeListener: ListenerRegistration? = null
+    private var showCongestion: Boolean = true
+    private var showPotholeMarkers: Boolean = true
+
 
     /**
      * ✅ 더미 포트홀 데이터를 불러와 지도에 마커로 표시
@@ -202,6 +206,12 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     private fun updatePotholeMarkers(potholes: List<PotholeData>) {
         if (!isMapReady) return
 
+        // 🔁 포트홀 레이어 OFF일 때: 지도에서만 숨기고 데이터는 유지
+        if (!showPotholeMarkers) {
+            potholeMarkers.forEach { it.map = null }
+            return
+        }
+
         // 마커 풀을 필요한 만큼 늘리기
         while (potholeMarkers.size < potholes.size) {
             potholeMarkers.add(Marker().apply {
@@ -248,6 +258,10 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         repo = LocationRepository()
         auth = FirebaseAuth.getInstance()
         potholeRepo = PotholeRepository()
+
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        showCongestion = prefs.getBoolean("show_congestion", true)
+        showPotholeMarkers = prefs.getBoolean("show_pothole_markers", true)
 
         // 1) 네이버 맵 초기화
         mapView = view.findViewById(R.id.map_view)
@@ -538,6 +552,13 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     private fun updateCongestionClusters(locations: List<LocationData>) {
         if (!isMapReady) return
 
+        // 🔁 혼잡도 레이어 OFF일 때: 지도에서만 숨기고 계산은 안 함
+        if (!showCongestion) {
+            clusterCircles.forEach { it.map = null }
+            clusterMarkers.forEach { it.map = null }
+            return
+        }
+
         try {
             val allLocations = locations
             Log.d(TAG, "실제 사용자 위치 ${allLocations.size}개로 혼잡도 계산")
@@ -817,6 +838,10 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         super.onResume()
         mapView.onResume()
 
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        showCongestion = prefs.getBoolean("show_congestion", true)
+        showPotholeMarkers = prefs.getBoolean("show_pothole_markers", true)
+
         if (hasLocationPermission()) {
             startLocationUpdates()
         }
@@ -826,11 +851,12 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             startCongestionListener()
         }
 
-        // ✅ 포트홀 리스너 재시작
+        // 포트홀 리스너 재시작
         if (isMapReady && potholeListener == null) {
             startPotholeListener()
         }
     }
+
 
     override fun onPause() {
         super.onPause()

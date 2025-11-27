@@ -50,7 +50,7 @@ import androidx.camera.core.UseCase
 import com.example.capstone.ml.PotholeDetection
 import android.os.Handler
 import android.os.Looper
-
+import androidx.preference.PreferenceManager
 
 class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener {
 
@@ -104,6 +104,11 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
     // 감지 결과 브로드캐스트 간 최소 간격 (ms)
     private var lastDetectionBroadcastTime: Long = 0L
 
+    private fun isPotholeModelEnabled(): Boolean {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        return prefs.getBoolean("use_pothole_model", true)
+    }
+
     fun setPotholeListener(listener: ((List<PotholeDetection>) -> Unit)?) {
         potholeListener = listener
     }
@@ -134,8 +139,13 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
         lifecycleRegistry.currentState = Lifecycle.State.RESUMED
 
-        // ★ 포트홀 감지 모델 초기화
-        potholeDetector = PotholeDetector(this)
+        // ★ 포트홀 감지 모델 초기화 (설정 기반)
+        if (isPotholeModelEnabled()) {
+            potholeDetector = PotholeDetector(this)
+        } else {
+            potholeDetector = null
+            Log.d(TAG, "포트홀 모델 비활성화 상태 – 감지 로직 사용 안 함")
+        }
     }
 
     fun setPreviewViews(mainPreview: PreviewView, miniPreview: PreviewView) {
@@ -223,7 +233,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
 
         // 3) ImageAnalysis (포트홀 감지용)
         val detector = potholeDetector
-        if (detector == null) {
+        if (detector == null || !isPotholeModelEnabled()) {
+            // 모델 OFF → 분석 use case 제거
+            imageAnalysis = null
             Log.e(TAG, "PotholeDetector is null, skip ImageAnalysis")
         } else {
             imageAnalysis = ImageAnalysis.Builder()
