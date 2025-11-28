@@ -23,6 +23,18 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.OnBackPressedCallback
+import android.content.Context
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.widget.TextView
+import androidx.core.app.ActivityCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 
 class MainActivity2 : AppCompatActivity() {
 
@@ -40,6 +52,11 @@ class MainActivity2 : AppCompatActivity() {
     // 원래 화면 밝기 저장 변수
     private var originalBrightness: Float = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     private var isPowerSavingActive = false
+
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var locationRequest: LocationRequest
+
+    private val locationPermissionCode = 1000
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -124,6 +141,16 @@ class MainActivity2 : AppCompatActivity() {
         binding = ActivityMain2Binding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+        // 1초마다, 높은 정확도로 요청
+        locationRequest = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            1000
+        ).setMinUpdateDistanceMeters(0f).build()
+
+        checkLocationPermission()
+
         hideNavigationBar() // 네비게이션 바 숨기는 함수
         // 1. 뒤로가기 콜백 객체 생성 (enabled: false 로 일단 비활성화)
         mapBackPressedCallback = object : OnBackPressedCallback(false) {
@@ -189,6 +216,101 @@ class MainActivity2 : AppCompatActivity() {
                 syncUiToState()
             }
         }
+    }
+
+    private fun checkLocationPermission() {
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                locationPermissionCode
+            )
+        } else {
+            startLocationUpdates()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == locationPermissionCode &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            startLocationUpdates()
+        } else {
+            Toast.makeText(this, "속도 측정을 위해 위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // -----------------------------
+    // GPS 속도 업데이트 Callback
+    // -----------------------------
+    private var lastSpeed = 0.0
+
+    private val locationCallback = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult) {
+            val location = result.lastLocation ?: return
+
+            var speedKmh = location.speed * 3.6  // m/s → km/h
+
+            // ---- 미세 노이즈 제거 ----
+            if (speedKmh < 1.0) speedKmh = 0.0
+
+            // ---- 부드러운 속도 처리 ----
+          /*  speedKmh = (lastSpeed * 0.7) + (speedKmh * 0.3)
+            lastSpeed = speedKmh*/
+
+            binding.speedTextView.text = String.format("%.1f", speedKmh)
+        }
+    }
+
+    // -----------------------------
+    // GPS ON/OFF 확인
+    // -----------------------------
+    private fun isGpsEnabled(): Boolean {
+        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+    }
+
+    private fun startLocationUpdates() {
+        if (!isGpsEnabled()) {
+            Toast.makeText(this, "GPS를 켜야 속도 측정이 가능합니다.", Toast.LENGTH_LONG).show()
+            binding.speedTextView.text = "--"
+            return
+        }
+
+        if (ActivityCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        fusedLocationClient.requestLocationUpdates(
+            locationRequest,
+            locationCallback,
+            Looper.getMainLooper()
+        )
+    }
+
+    private fun stopLocationUpdates() {
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        startLocationUpdates()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopLocationUpdates()
     }
 
     private fun hideNavigationBar() {
