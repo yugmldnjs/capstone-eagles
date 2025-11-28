@@ -63,8 +63,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         const val ACTION_RECORDING_STARTED = "com.example.capstone.RECORDING_STARTED"
         const val ACTION_RECORDING_STOPPED = "com.example.capstone.RECORDING_STOPPED"
         const val ACTION_RECORDING_SAVED = "com.example.capstone.RECORDING_SAVED"
-        // ★ 포트홀 감지 브로드캐스트 액션 추가
-        const val ACTION_POTHOLE_DETECTIONS = "com.example.capstone.POTHOLE_DETECTIONS"
+
+        // ★ TFLite 추론 간 최소 간격 (ms) – 필요하면 300~500 사이에서 조절
+        private const val MIN_INFERENCE_INTERVAL_MS = 300L
     }
 
     // 메인 스레드로 결과를 보내기 위한 핸들러
@@ -101,8 +102,8 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
     // 분석용 전용 스레드
     private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
-    // 감지 결과 브로드캐스트 간 최소 간격 (ms)
-    private var lastDetectionBroadcastTime: Long = 0L
+    // ★ TFLite 추론 간 최소 간격 제어용
+    private var lastInferenceTime: Long = 0L
 
     private fun isPotholeModelEnabled(): Boolean {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
@@ -244,6 +245,15 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build().also { analysis ->
                     analysis.setAnalyzer(analysisExecutor) { image ->
+
+                        // ★ 1) 추론 최소 간격 체크
+                        val now = System.currentTimeMillis()
+                        if (now - lastInferenceTime < MIN_INFERENCE_INTERVAL_MS) {
+                            image.close()              // 반드시 닫아줘야 함
+                            return@setAnalyzer
+                        }
+                        lastInferenceTime = now
+
                         try {
                             val detections = detector.detect(image)
 
@@ -253,9 +263,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
                                     listener(detections)
                                 }
                             }
-
-                            // ✅ 2) 그대로 브로드캐스트도 유지 (나중에 필요하면 활용)
-                            broadcastPotholeDetections(detections)
 
                             if (detections.isNotEmpty()) {
                                 val maxScore = detections.maxOf { it.score }
@@ -654,32 +661,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         WorkManager.getInstance(this).enqueue(workRequest)
         Log.d(TAG, "📋 이벤트 추출 작업 예약: $uri")
     }
-
-    private fun broadcastPotholeDetections(detections: List<PotholeDetection>) {
-        val now = System.currentTimeMillis()
-        // 너무 자주 쏘면 부담되니 200ms 간격으로 제한
-        if (now - lastDetectionBroadcastTime < 200L) return
-        lastDetectionBroadcastTime = now
-
-        // Intent 생성
-        val intent = Intent(ACTION_POTHOLE_DETECTIONS)
-
-        // Parcelable ArrayList로 넣기
-        intent.putParcelableArrayListExtra(
-            "detections",
-            ArrayList<PotholeDetection>(detections)
-        )
-
-        // ★ 여기 로그 추가
-        Log.d(
-            TAG,
-            "broadcastPotholeDetections() sending ${detections.size} detections"
-        )
-
-        // 브로드캐스트 전송
-        sendBroadcast(intent)
-    }
-
 
     override fun onDestroy() {
         super.onDestroy()

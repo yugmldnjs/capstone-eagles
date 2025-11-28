@@ -8,15 +8,13 @@ import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.ImageFormat
 import android.graphics.Matrix
-import android.graphics.Rect
-import android.graphics.YuvImage
 import java.io.ByteArrayOutputStream
 import java.nio.ByteOrder
 import android.os.Parcel
 import android.os.Parcelable
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * 포트홀 감지 결과 하나를 표현하는 데이터 클래스
@@ -88,6 +86,9 @@ class PotholeDetector(
         order(ByteOrder.nativeOrder())
     }
 
+    // 카메라 프레임을 RGB Bitmap으로 만들 때 재사용
+    private var rgbBitmap: Bitmap? = null
+
     init {
         // 1) 모델 로드
         val modelBuffer = loadModelFile(context, MODEL_FILE)
@@ -154,10 +155,14 @@ class PotholeDetector(
     }
 
     /**
-     * ImageProxy(YUV_420_888)를 Bitmap으로 변환
-     * - 성능은 아주 빠르진 않지만, 구현이 간단해서 초기 테스트용으로 적당합니다.
+     * ImageProxy(YUV_420_888)를 바로 NV21 → ARGB 변환해서 Bitmap으로 만든다.
+     * - 기존 JPEG 압축/디코딩 과정을 없애서 CPU 부하를 크게 줄인다.
      */
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
+        val width = image.width
+        val height = image.height
+
+        // 1) planes → NV21 바이트 배열 구성 (기존 코드와 동일한 순서)
         val yBuffer = image.planes[0].buffer
         val uBuffer = image.planes[1].buffer
         val vBuffer = image.planes[2].buffer
@@ -168,24 +173,62 @@ class PotholeDetector(
 
         val nv21 = ByteArray(ySize + uSize + vSize)
 
-        // U, V 가 섞이는 순서에 주의
-        yBuffer.get(nv21, 0, ySize)
-        vBuffer.get(nv21, ySize, vSize)
+        // NV21: Y + VU interleaved
+        yBuffer.get(nv21, 0,      ySize)
+        vBuffer.get(nv21, ySize,  vSize)
         uBuffer.get(nv21, ySize + vSize, uSize)
 
-        val yuvImage = YuvImage(
-            nv21,
-            ImageFormat.NV21,
-            image.width,
-            image.height,
-            null
-        )
+        // 2) NV21 → ARGB_8888 Bitmap
+        val bitmap = rgbBitmap?.takeIf { it.width == width && it.height == height }
+            ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+                rgbBitmap = it
+            }
 
-        val out = ByteArrayOutputStream()
-        yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 100, out)
-        val jpegBytes = out.toByteArray()
+        val frameSize = width * height
+        val argb = IntArray(frameSize)
 
-        return BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+        var yp = 0
+        for (j in 0 until height) {
+            var uvIndex = frameSize + (j shr 1) * width
+            var u = 0
+            var v = 0
+
+            for (i in 0 until width) {
+                val y = 0xFF and nv21[yp].toInt()
+
+                // 2픽셀마다 VU 갱신
+                if ((i and 1) == 0) {
+                    v = 0xFF and nv21[uvIndex].toInt()
+                    u = 0xFF and nv21[uvIndex + 1].toInt()
+                    uvIndex += 2
+                }
+
+                val yClamped = (y - 16).coerceAtLeast(0)
+                val y1192 = 1192 * yClamped
+                val uShifted = u - 128
+                val vShifted = v - 128
+
+                var r = y1192 + 1634 * vShifted
+                var g = y1192 - 833 * vShifted - 400 * uShifted
+                var b = y1192 + 2066 * uShifted
+
+                // 0 ~ 262143 범위로 클램프
+                if (r < 0) r = 0 else if (r > 262143) r = 262143
+                if (g < 0) g = 0 else if (g > 262143) g = 262143
+                if (b < 0) b = 0 else if (b > 262143) b = 262143
+
+                argb[yp] =
+                    (0xFF shl 24) or
+                            ((r shl 6) and 0x00FF0000) or
+                            ((g shr 2) and 0x0000FF00) or
+                            ((b shr 10) and 0x000000FF)
+
+                yp++
+            }
+        }
+
+        bitmap.setPixels(argb, 0, width, 0, 0, width, height)
+        return bitmap
     }
 
     /**
@@ -243,7 +286,7 @@ class PotholeDetector(
         interpreter.run(imgData, output)
 
         // 6) 결과 파싱
-        val detections = mutableListOf<PotholeDetection>()
+        val rawDetections = mutableListOf<PotholeDetection>()
 
         val channels = output[0]              // size = 5
         if (channels.size < 5) {
@@ -270,8 +313,7 @@ class PotholeDetector(
             val w = ws[i]
             val h = hs[i]
 
-            // 여기서는 일단 0~1 정규화 값이라고 가정
-            detections.add(
+            rawDetections.add(
                 PotholeDetection(
                     score = score,
                     cx = cx,
@@ -282,9 +324,80 @@ class PotholeDetector(
             )
         }
 
-        Log.d(TAG, "detect() found ${detections.size} potholes (score >= $scoreThreshold)")
+        // ★ NMS로 겹치는 박스 정리
+        val finalDetections = applyNms(
+            detections = rawDetections,
+            iouThreshold = 0.5f,
+            maxDetections = 5       // 필요하면 3~10 등으로 조절
+        )
 
-        return detections
+        Log.d(
+            TAG,
+            "detect() raw=${rawDetections.size} filtered=${finalDetections.size} (score >= $scoreThreshold)"
+        )
+
+        return finalDetections
+    }
+
+    /**
+     * Non-Max Suppression (NMS)
+     * - 점수 높은 박스부터 하나씩 고르고
+     * - 이미 고른 박스들과 IoU가 threshold 이상 겹치는 애들은 버린다
+     */
+    private fun applyNms(
+        detections: List<PotholeDetection>,
+        iouThreshold: Float = 0.5f,
+        maxDetections: Int = 5
+    ): List<PotholeDetection> {
+        if (detections.isEmpty()) return emptyList()
+
+        // 점수 높은 순으로 정렬
+        val sorted = detections.sortedByDescending { it.score }
+        val result = mutableListOf<PotholeDetection>()
+
+        fun iou(a: PotholeDetection, b: PotholeDetection): Float {
+            // cx, cy, w, h 는 0~1 정규화라고 가정
+            val ax1 = a.cx - a.w / 2f
+            val ay1 = a.cy - a.h / 2f
+            val ax2 = a.cx + a.w / 2f
+            val ay2 = a.cy + a.h / 2f
+
+            val bx1 = b.cx - b.w / 2f
+            val by1 = b.cy - b.h / 2f
+            val bx2 = b.cx + b.w / 2f
+            val by2 = b.cy + b.h / 2f
+
+            val interX1 = max(ax1, bx1)
+            val interY1 = max(ay1, by1)
+            val interX2 = min(ax2, bx2)
+            val interY2 = min(ay2, by2)
+
+            val interW = max(0f, interX2 - interX1)
+            val interH = max(0f, interY2 - interY1)
+            val interArea = interW * interH
+            if (interArea <= 0f) return 0f
+
+            val areaA = a.w * a.h
+            val areaB = b.w * b.h
+            return interArea / (areaA + areaB - interArea)
+        }
+
+        for (det in sorted) {
+            if (result.size >= maxDetections) break
+
+            var keep = true
+            for (kept in result) {
+                if (iou(det, kept) > iouThreshold) {
+                    keep = false
+                    break
+                }
+            }
+            if (keep) {
+                result.add(det)
+            }
+        }
+
+        return result
     }
 
     fun close() {

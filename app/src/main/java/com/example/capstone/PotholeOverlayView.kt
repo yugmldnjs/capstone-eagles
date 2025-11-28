@@ -36,15 +36,12 @@ class PotholeOverlayView @JvmOverloads constructor(
     private var detections: List<PotholeDetection> = emptyList()
 
     fun updateDetections(newDetections: List<PotholeDetection>) {
-        Log.d(TAG, "updateDetections: size=${newDetections.size}")
         detections = newDetections
         invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-
-        Log.d(TAG, "onDraw: size=${width}x$height, detections=${detections.size}")
 
         if (detections.isEmpty()) return
 
