@@ -120,7 +120,7 @@ class StorageActivity : AppCompatActivity() {
 
             retriever.release() // 리소스 해제
 
-            val locationString = if (file.absolutePath == "Events") {
+            val locationString = if (file.absolutePath.contains("Events")) {
                 getLocationFromDb(date.time)
             } else {
                 getVideoLocation(file.absolutePath.toUri())
