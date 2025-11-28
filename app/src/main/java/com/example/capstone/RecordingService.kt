@@ -64,8 +64,8 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         const val ACTION_RECORDING_STOPPED = "com.example.capstone.RECORDING_STOPPED"
         const val ACTION_RECORDING_SAVED = "com.example.capstone.RECORDING_SAVED"
 
-        // ★ TFLite 추론 간 최소 간격 (ms) – 필요하면 300~500 사이에서 조절
-        private const val MIN_INFERENCE_INTERVAL_MS = 300L
+        // ★ TFLite 추론 간 최소 간격 (ms) – 필요시 조절
+        private const val MIN_INFERENCE_INTERVAL_MS = 200L
     }
 
     // 메인 스레드로 결과를 보내기 위한 핸들러

@@ -239,17 +239,21 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         }
     }
 
-    fun addPotholeFromCurrentLocationFromModel() {
+    /**
+     * 모델/추적기가 "포트홀 확정" 신호를 줄 때 호출.
+     * @return 이번 호출로 실제 새로운 포트홀 핀이 추가되었으면 true
+     */
+    fun addPotholeFromCurrentLocationFromModel(): Boolean {
         // 0) locationManager 준비 여부 체크 (lateinit 보호)
         if (!this::locationManager.isInitialized) {
             Log.d(TAG, "addPotholeFromCurrentLocationFromModel: locationManager 미초기화, 무시")
-            return
+            return false
         }
 
         // 1) 지도 / 포트홀 매니저 준비 여부 체크
         if (!isMapReady || !this::potholeManager.isInitialized) {
             Log.d(TAG, "addPotholeFromCurrentLocationFromModel: 지도 또는 potholeManager 준비 안됨, 무시")
-            return
+            return false
         }
 
         // 2) 위치 확인
@@ -258,11 +262,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         if (lat == null || lon == null) {
             Log.d(TAG, "addPotholeFromCurrentLocationFromModel: 위치 정보 없음, 무시")
-            return
+            return false
         }
 
-        // 3) 실제 포트홀 추가
-        potholeManager.addPotholeFromLocation(lat, lon)
+        // 3) 실제 포트홀 추가 / 중복 여부는 매니저가 판단
+        return potholeManager.addPotholeFromLocation(lat, lon)
     }
 
     private fun hasLocationPermission(): Boolean {

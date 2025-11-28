@@ -23,7 +23,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.OnBackPressedCallback
-import com.example.capstone.ml.PotholeDetection
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
