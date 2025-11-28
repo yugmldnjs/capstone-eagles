@@ -18,7 +18,6 @@ class PotholeOverlayManager(
 
     companion object {
         private const val TAG = "PotholeOverlayMgr"
-        private const val POTHOLE_MERGE_DISTANCE_METERS = 5.0
         private const val MIN_POTHOLE_EVENT_INTERVAL_MS = 2000L
         private const val EXISTING_PIN_DISTANCE_METERS = 20.0
     }
@@ -92,37 +91,16 @@ class PotholeOverlayManager(
 
 
     private fun addOrMergePothole(lat: Double, lon: Double) {
-        val existing = potholePoints.firstOrNull { p ->
-            LocationUtils.calculateDistance(p.latitude, p.longitude, lat, lon) <
-                    POTHOLE_MERGE_DISTANCE_METERS
-        }
-
-        val targetLat: Double
-        val targetLon: Double
-
-        if (existing != null) {
-            val index = potholePoints.indexOf(existing)
-            val updated = existing.copy(
-                count = existing.count + 1,
-                createdAt = System.currentTimeMillis()
-            )
-            potholePoints[index] = updated
-            targetLat = updated.latitude
-            targetLon = updated.longitude
-        } else {
-            val newPothole = PotholeData(
-                latitude = lat,
-                longitude = lon,
-                createdAt = System.currentTimeMillis(),
-                count = 1
-            )
-            potholePoints.add(newPothole)
-            targetLat = newPothole.latitude
-            targetLon = newPothole.longitude
-        }
+        val newPothole = PotholeData(
+            latitude = lat,
+            longitude = lon,
+            createdAt = System.currentTimeMillis(),
+            count = 1
+        )
+        potholePoints.add(newPothole)
 
         updatePotholeMarkers(potholePoints)
-        potholeRepo.uploadPothole(targetLat, targetLon)
+        potholeRepo.uploadPothole(newPothole.latitude, newPothole.longitude)
     }
 
     private fun updatePotholeMarkers(potholes: List<PotholeData>) {

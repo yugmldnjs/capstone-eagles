@@ -202,9 +202,6 @@ class MainActivity2 : AppCompatActivity() {
             registerReceiver(recordingReceiver, filter)
         }
 
-        setupClickListeners()
-        observeViewModel()
-
         // 프래그먼트 뒤로가기 감지
         supportFragmentManager.addOnBackStackChangedListener {
             // backStackEntryCount가 0이라는 것은 모든 프래그먼트가 닫혔다는 의미임.
