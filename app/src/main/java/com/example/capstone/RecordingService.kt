@@ -5,16 +5,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
-import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
-import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
 import androidx.camera.core.Camera
@@ -39,6 +36,7 @@ import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -56,7 +54,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
     private var miniPreviewView: PreviewView? = null
     private var currentPreview: Preview? = null
     private lateinit var sensorHandler: SensorHandler
-    private var currentVideoUri: Uri? = null
+    private var currentRecordingFile: File? = null
     private var currentRecordingStartTime: Long = 0
     private lateinit var fusedLocationClient: FusedLocationProviderClient  // 위치 정보 가져오기
     var currentLocation: Location? = null
@@ -243,29 +241,21 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         }
     }
 
-    // [수정됨] 실제 녹화를 수행하는 내부 함수
+    // 실제 녹화를 수행하는 내부 함수
     private fun startRecordingInternal(videoCapture: VideoCapture<Recorder>, location: Location?) {
         Log.d(TAG, "startRecordingInternal - Location included: ${location != null}")
         val name = "Blackbox-${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
             .format(currentRecordingStartTime)}.mp4"
 
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-            put(MediaStore.MediaColumns.DATE_TAKEN, currentRecordingStartTime)
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MyBlackboxVideos/Full")
-            }
+        currentRecordingFile = File(
+            getExternalFilesDir("Recordings"),  // 또는 getExternalFilesDir(null)
+            name
+        ).apply {
+            parentFile?.mkdirs()
         }
 
-        val outputOptionsBuilder = MediaStoreOutputOptions
-            .Builder(contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
-            .setContentValues(contentValues)
-        if (location != null) {
-            outputOptionsBuilder.setLocation(location)
-        }
-        // 3. 설정을 다 넣은 뒤에 build()를 호출합니다.
-        val mediaStoreOutputOptions = outputOptionsBuilder.build()
+        val fileOutputOptions = FileOutputOptions.Builder(currentRecordingFile!!)
+            .build()
 
         val audioPermission = ContextCompat.checkSelfPermission(
             this,
@@ -277,7 +267,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
 
         try {
             val pendingRecording = videoCapture.output
-                .prepareRecording(this, mediaStoreOutputOptions)
+                .prepareRecording(this, fileOutputOptions)
 
             // 녹화 시작
             recording = pendingRecording
@@ -296,30 +286,22 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
                         }
                         is VideoRecordEvent.Finalize -> {
                             if (!recordEvent.hasError()) {
-                                currentVideoUri = recordEvent.outputResults.outputUri
+                                val finalFile = currentRecordingFile
 
                                 val msg = "영상 저장 완료"
                                 Log.d(TAG, msg)
                                 sendBroadcast(Intent(ACTION_RECORDING_SAVED).apply {
                                     putExtra("message", msg)
                                 })
-
-                                // ✅ 핵심: 이 녹화 세션의 pending 이벤트들 업데이트
-                                updatePendingEventsWithUri(
-                                    currentRecordingStartTime,
-                                    currentVideoUri!!
-                                )
                                 // WorkManager 예약
-                                scheduleEventExtraction(currentVideoUri!!)
-
-
+                                finalFile?.let { scheduleEventExtraction(it) }
 
                             } else {
                                 Log.e(TAG, "영상 저장 실패: ${recordEvent.error}")
                             }
                             recording = null
                             currentRecordingStartTime = 0
-                            currentVideoUri = null
+                            currentRecordingFile = null
                             updateNotification("카메라 대기 중")
                             sendBroadcast(Intent(ACTION_RECORDING_STOPPED))
                         }
@@ -331,6 +313,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
             Log.e(TAG, "Failed to start recording", e)
             recording = null
             currentRecordingStartTime = 0
+            currentRecordingFile = null
         }
         sensorHandler.start()
         LogToFileHelper.startLogging(this, "SensorLog")
@@ -480,8 +463,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         Log.d(TAG, "location: ${location?.latitude}, ${location?.longitude}")
         val event = EventEntity(
             timestamp = timestamp,
-            recordingStartTimestamp = currentRecordingStartTime,
-            type = "impact",
+            type = "event",
             latitude = location?.latitude,
             longitude = location?.longitude,
             speed = currentSpeed,
@@ -491,7 +473,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
             gyroX = gyroData?.get(0),
             gyroY = gyroData?.get(1),
             gyroZ = gyroData?.get(2),
-            videoUri = null,
+            videoFilePath = currentRecordingFile?.absolutePath,
             extractedVideoPath = null,
             status = "pending"
         )
@@ -511,28 +493,10 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         Log.d(TAG, "⚡ 충격 이벤트 마커 저장 로직 완료: $timestamp")
     }
 
-    // ✅ Finalize에서 호출: URI로 pending 이벤트들 업데이트
-    private fun updatePendingEventsWithUri(recordingStartTimestamp: Long, uri: Uri) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            // 해당 녹화 세션의 이벤트들 찾기
-            val pendingEvents = eventDao.getPendingExtractions()
-                .filter { it.recordingStartTimestamp == recordingStartTimestamp }
-
-            // URI로 업데이트
-            pendingEvents.forEach { event ->
-                eventDao.update(event.copy(
-                    videoUri = uri.toString()
-                ))
-            }
-
-            Log.d(TAG, "✅ ${pendingEvents.size}개 이벤트 URI 업데이트 완료")
-        }
-    }
-
-    private fun scheduleEventExtraction(uri: Uri) {
+    private fun scheduleEventExtraction(videoFile: File) {
         val workRequest = OneTimeWorkRequestBuilder<EventExtractionWorker>()
             .setInputData(
-                workDataOf("video_uri" to uri.toString())
+                workDataOf("video_path" to videoFile.absolutePath)
             )
             .setConstraints(
                 Constraints.Builder()
@@ -542,7 +506,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
             .build()
 
         WorkManager.getInstance(this).enqueue(workRequest)
-        Log.d(TAG, "📋 이벤트 추출 작업 예약: $uri")
+        Log.d(TAG, "📋 이벤트 추출 작업 예약: $videoFile.name")
     }
 
     override fun onDestroy() {

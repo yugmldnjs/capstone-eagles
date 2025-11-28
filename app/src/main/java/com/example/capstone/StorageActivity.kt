@@ -3,7 +3,6 @@ package com.example.capstone
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.widget.Toast
@@ -29,6 +28,7 @@ import com.example.capstone.database.BikiDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.regex.Pattern
 
 data class VideoItem(
@@ -61,7 +61,7 @@ class StorageActivity : AppCompatActivity() {
         setupRecyclerView()
         lifecycleScope.launch {
             // suspend 함수들을 순차적으로 호출
-            loadVideosFromStorage(fullVideoList, "Full")
+            loadVideosFromStorage(fullVideoList, "recordings")
             loadVideosFromStorage(eventVideoList, "Events")
 
             // 모든 로딩이 끝나면 메인 스레드에서 UI 업데이트
@@ -89,67 +89,57 @@ class StorageActivity : AppCompatActivity() {
         videoList.clear()
         Log.d("StorageActivity", "dir: $dir==============================")
 
-        withContext(Dispatchers.IO) {
-            val projection = arrayOf(
-                MediaStore.Video.Media._ID,
-                MediaStore.Video.Media.DISPLAY_NAME,
-                MediaStore.Video.Media.DATE_ADDED,
-                MediaStore.Video.Media.SIZE,
-                MediaStore.Video.Media.DURATION,
-                MediaStore.Video.Media.RELATIVE_PATH
-            )
+        // 1. 폴더에서 영상 불러오기
+        val videoDir = getExternalFilesDir(dir)
+        if (videoDir != null && videoDir.exists()) {
+            val videoFiles =
+                videoDir.listFiles { file -> file.isFile && file.extension == "mp4" }
+            videoFiles?.sortByDescending { it.lastModified() } // 최신 순으로 정렬
 
-            val selection = "${MediaStore.Video.Media.RELATIVE_PATH} LIKE ?"
-            val selectionArgs = arrayOf("Movies/MyBlackboxVideos/${dir}/%")
-            val sortOrder =" ${MediaStore.Video.Media.DATE_ADDED} DESC"
-
-            val query = contentResolver.query(
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                projection,
-                selection,
-                selectionArgs,
-                sortOrder
-            )
-
-            query?.use { cursor ->
-                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
-                val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
-                val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
-                val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
-
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(idColumn)
-                    val name = cursor.getString(nameColumn)
-                    val size = cursor.getLong(sizeColumn)
-                    val duration = cursor.getLong(durationColumn)
-                    val contentUri =
-                        Uri.withAppendedPath(
-                            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                            id.toString()
-                        )
-
-                    val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(name.substring(name.length-27, name.length-3))
-
-                    val locationString = if (dir.contains("Events")) {
-                        getLocationFromDb(date.time)
-                    } else {
-                        getVideoLocation(contentUri)
-                    }
-
-                    videoList.add(
-                        VideoItem(
-                            videoPath = contentUri.toString(),
-                            date = SimpleDateFormat("yyyy/MM/dd", Locale.KOREA).format(date),
-                            time = SimpleDateFormat("HH시 mm분", Locale.KOREA).format(date),
-                            location = locationString,
-                            videoTime = formatDuration(duration),
-                            videoSize = formatFileSize(size)
-                        )
-                    )
+            videoFiles?.forEach { file ->
+                val videoItem = createVideoItemFromFile(file)
+                if (videoItem != null) {
+                    videoList.add(videoItem)
                 }
             }
+        } else {
+            Log.w("StorageActivity", "${dir} 디렉토리가 없거나 접근할 수 없습니다.")
         }
     }
+
+    // 파일을 기반으로 VideoItem 객체를 생성하는 헬퍼 함수
+    private suspend fun createVideoItemFromFile(file: File): VideoItem? {
+        try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(file.absolutePath)
+
+            val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(file.name.substring(file.name.length-27, file.name.length-3))
+            val size = file.length()
+            val durationString = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val duration = durationString?.toLongOrNull() ?: 0L
+
+            retriever.release() // 리소스 해제
+
+            val locationString = if (file.absolutePath == "Events") {
+                getLocationFromDb(date.time)
+            } else {
+                getVideoLocation(file.absolutePath.toUri())
+            }
+
+            return VideoItem(
+                videoPath = file.absolutePath, // MediaStore URI 대신 실제 파일 경로 사용
+                date = SimpleDateFormat("yyyy/MM/dd", Locale.KOREA).format(date),
+                time = SimpleDateFormat("HH시 mm분", Locale.KOREA).format(date),
+                location = locationString,
+                videoTime = formatDuration(duration),
+                videoSize = formatFileSize(size)
+            )
+        } catch (e: Exception) {
+            Log.e("StorageActivity", "파일 메타데이터를 읽는 중 오류 발생: ${file.name}", e)
+            return null
+        }
+    }
+
 
     private fun getVideoLocation(videoUri: Uri): String {
         val retriever = MediaMetadataRetriever()
@@ -207,6 +197,7 @@ class StorageActivity : AppCompatActivity() {
 
             val event = eventDao.getEventByTimestamp(eventTimestamp)
             if (event != null && event.latitude != null && event.longitude != null) {
+                Log.d("StorageActivity", "위치 정보 로딩 성공: ${event.latitude}, ${event.longitude}")
                 getAddressFromLocation(event.latitude, event.longitude)
             } else {
                 "위치 정보 없음"
