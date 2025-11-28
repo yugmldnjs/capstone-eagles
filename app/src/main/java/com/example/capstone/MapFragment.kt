@@ -2,9 +2,7 @@ package com.example.capstone
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.graphics.Color
 import android.os.Bundle
-import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.widget.FrameLayout
@@ -14,243 +12,40 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.setPadding
 import androidx.fragment.app.Fragment
 import androidx.preference.PreferenceManager
-import com.google.android.gms.location.*
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.*
-import com.naver.maps.map.overlay.CircleOverlay
-import com.naver.maps.map.overlay.Marker
-import com.naver.maps.map.overlay.OverlayImage
 import com.example.capstone.data.LocationRepository
-import com.example.capstone.data.LocationData
-import com.example.capstone.utils.CongestionCalculator
-import com.example.capstone.utils.CongestionLevel
-import com.example.capstone.dummy.BikeDummyData
-import com.example.capstone.utils.CongestionCluster
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.ListenerRegistration
-import kotlin.math.*
-import com.example.capstone.data.PotholeData
 import com.example.capstone.data.PotholeRepository
-import com.example.capstone.dummy.PotholeDummyData
+import com.example.capstone.map.CongestionOverlayManager
+import com.example.capstone.map.MapLocationManager
+import com.example.capstone.map.PotholeOverlayManager
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     companion object {
         private const val TAG = "MapFragment"
-        private const val UPLOAD_DISTANCE_THRESHOLD = 10.0 // 10m
-        private const val UPLOAD_TIME_THRESHOLD = 30000L // 30초
-
-        // ✅ 포트홀 병합 기준 거리 (m)
-        private const val POTHOLE_MERGE_DISTANCE_METERS = 5.0
-
-        // ✅ 모델에서 포트홀 들어왔을 때 맵 반영 최소 간격 (ms)
-        private const val MIN_POTHOLE_EVENT_INTERVAL_MS = 2000L
+        private const val REQ_LOCATION = 1000
     }
 
     private lateinit var naverMap: NaverMap
     private lateinit var mapView: MapView
 
-    // Google Location Services
-    private lateinit var fusedLocationClient: FusedLocationProviderClient
-    private lateinit var locationCallback: LocationCallback
-    private lateinit var locationRequest: LocationRequest
+    private lateinit var locationManager: MapLocationManager
+    private lateinit var congestionManager: CongestionOverlayManager
+    private lateinit var potholeManager: PotholeOverlayManager
 
-    // 마지막으로 받은 내 위치
-    private var lastLat: Double? = null
-    private var lastLon: Double? = null
-
-    // ✅ 위치 업로드 조건 체크용
-    private var lastUploadLat: Double? = null
-    private var lastUploadLon: Double? = null
-    private var lastUploadTime = 0L
-
-    // 지도 시작 시 true로 시작 → 첫 위치에 자동 고정
     private var followMyLocation: Boolean = true
+    private var isProgrammaticMove: Boolean = false
+    private var isFirstLocation: Boolean = true
+    private var isMapReady: Boolean = false
 
-    // ✅ 프로그래밍 방식 카메라 이동 플래그
-    private var isProgrammaticMove = false
-
-    // 권한 요청 코드
-    private val REQ_LOCATION = 1000
-    private var isFirstLocation = true
-    private var isMapReady = false
     private lateinit var repo: LocationRepository
+    private lateinit var potholeRepo: PotholeRepository
     private lateinit var auth: FirebaseAuth
 
-    // ✅ 혼잡도 관련 변수
-    private var locationListener: ListenerRegistration? = null
-    private val clusterCircles = mutableListOf<CircleOverlay>() // 원형 오버레이 저장
-    private val clusterMarkers = mutableListOf<Marker>() // 마커 리스트
-
-    // ✅ 포트홀 마커 리스트
-    private val potholeMarkers = mutableListOf<Marker>()
-
-    // ✅ 포트홀 좌표 리스트 (중복 제거용)
-    private val potholePoints = mutableListOf<PotholeData>()
-
-    private lateinit var potholeRepo: PotholeRepository
-
-    // ✅ 최근 포트홀 이벤트 시각
-    private var lastPotholeEventTime: Long = 0L
-    private var potholeListener: ListenerRegistration? = null
     private var showCongestion: Boolean = true
     private var showPotholeMarkers: Boolean = true
-
-
-    /**
-     * ✅ 더미 포트홀 데이터를 불러와 지도에 마커로 표시
-     */
-    private fun loadDummyPotholes() {
-        val dummyList = PotholeDummyData.generate()
-
-        potholePoints.clear()
-        dummyList.forEach { pothole ->
-            addOrMergePothole(pothole.latitude, pothole.longitude)
-        }
-    }
-
-    private fun startPotholeListener() {
-        // 혹시 살아 있는 리스너 있으면 정리
-        potholeListener?.remove()
-
-        potholeListener = potholeRepo.listenAllPotholes { serverPotholes ->
-            if (!isMapReady) return@listenAllPotholes
-
-            // 서버 기준으로 로컬 리스트 갱신
-            potholePoints.clear()
-            potholePoints.addAll(serverPotholes)
-
-            // 지도 마커 업데이트
-            updatePotholeMarkers(potholePoints)
-        }
-    }
-
-    /**
-     * ✅ 새 포트홀 좌표를 추가하거나,
-     *    근처에 기존 포인트가 있으면 합치는 함수
-     */
-    private fun addOrMergePothole(lat: Double, lon: Double) {
-        val existing = potholePoints.firstOrNull { p ->
-            calculateDistance(p.latitude, p.longitude, lat, lon) < POTHOLE_MERGE_DISTANCE_METERS
-        }
-
-        val targetLat: Double
-        val targetLon: Double
-
-        if (existing != null) {
-            val updated = existing.copy(
-                count = existing.count + 1,
-                createdAt = System.currentTimeMillis()
-            )
-            val index = potholePoints.indexOf(existing)
-            potholePoints[index] = updated
-
-            targetLat = updated.latitude
-            targetLon = updated.longitude
-        } else {
-            val newPothole = PotholeData(
-                id = null,
-                latitude = lat,
-                longitude = lon,
-                createdAt = System.currentTimeMillis(),
-                count = 1
-            )
-            potholePoints.add(newPothole)
-
-            targetLat = newPothole.latitude
-            targetLon = newPothole.longitude
-        }
-
-        updatePotholeMarkers(potholePoints)
-
-        // 🔻 이 부분은 모델 연동 시에만 활성화하면 됨 (지금은 주석 처리해도 괜찮아요)
-        potholeRepo.uploadPothole(targetLat, targetLon)
-
-        // 🔻 완전히 새로운 위치의 포트홀일 때만 DB에 기록
-        // if (isNew) {
-        //     potholeRepo.uploadPothole(targetLat, targetLon)
-        // }
-    }
-
-    /**
-     * ✅ 모델 감지 결과를 바탕으로
-     *    "현재 내 위치"에 포트홀을 추가하는 함수
-     *    - 너무 자주 찍히지 않도록 최소 간격도 적용
-     */
-    fun addPotholeFromCurrentLocationFromModel() {
-        val lat = lastLat
-        val lon = lastLon
-
-        if (lat == null || lon == null) {
-            Log.d(TAG, "addPotholeFromCurrentLocationFromModel: 위치 정보 없음, 무시")
-            return
-        }
-
-        val now = System.currentTimeMillis()
-        if (now - lastPotholeEventTime < MIN_POTHOLE_EVENT_INTERVAL_MS) {
-            Log.d(TAG, "addPotholeFromCurrentLocationFromModel: 너무 짧은 간격, 무시")
-            return
-        }
-        lastPotholeEventTime = now
-
-        // 실제 포트홀 병합/마커 업데이트는 기존 로직 재사용
-        addOrMergePothole(lat, lon)
-
-        // 🔻 Firestore에 기록까지 하고 싶으면 여기에 추가 (비용 고려해서 나중에 켜기)
-        // potholeRepo.uploadPothole(lat, lon)
-    }
-
-    /**
-     * ✅ 포트홀 마커 업데이트 (재사용 방식)
-     */
-    private fun updatePotholeMarkers(potholes: List<PotholeData>) {
-        if (!isMapReady) return
-
-        // 🔁 포트홀 레이어 OFF일 때: 지도에서만 숨기고 데이터는 유지
-        if (!showPotholeMarkers) {
-            potholeMarkers.forEach { it.map = null }
-            return
-        }
-
-        // 마커 풀을 필요한 만큼 늘리기
-        while (potholeMarkers.size < potholes.size) {
-            potholeMarkers.add(Marker().apply {
-                icon = OverlayImage.fromResource(
-                    com.naver.maps.map.R.drawable.navermap_default_marker_icon_black
-                )
-                width = 70
-                height = 70
-            })
-        }
-
-        potholes.forEachIndexed { index, pothole ->
-            val marker = potholeMarkers[index]
-            marker.position = LatLng(pothole.latitude, pothole.longitude)
-            marker.map = naverMap
-
-            marker.setOnClickListener {
-                // ✅ 포트홀 위치로 부드럽게 줌인
-                isProgrammaticMove = true
-                val cameraPosition = CameraPosition(
-                    LatLng(pothole.latitude, pothole.longitude),
-                    17.0  // 혼잡도보다 조금 더 확대하고 싶으면 17~18 정도
-                )
-                val cameraUpdate = CameraUpdate
-                    .toCameraPosition(cameraPosition)
-                    .animate(CameraAnimation.Easing)
-
-                naverMap.moveCamera(cameraUpdate)
-                true
-            }
-        }
-
-        // 남는 마커들은 지도에서만 숨기고 객체는 재사용
-        for (i in potholes.size until potholeMarkers.size) {
-            potholeMarkers[i].map = null
-        }
-    }
-
-
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -263,38 +58,49 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         showCongestion = prefs.getBoolean("show_congestion", true)
         showPotholeMarkers = prefs.getBoolean("show_pothole_markers", true)
 
-        // 1) 네이버 맵 초기화
+        // 1) 네이버 맵
         mapView = view.findViewById(R.id.map_view)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
 
         // 2) 커스텀 현위치 버튼
-        val container = view.findViewById<FrameLayout>(R.id.map_container)
+        setupRecenterButton(view)  // 아래에 함수 하나 새로 뺄 것
+
+        // 3) LocationManager 생성
+        locationManager = MapLocationManager(
+            context = requireContext(),
+            repo = repo,
+            auth = auth
+        ) { lat, lon ->
+            onLocationUpdatedFromManager(lat, lon)
+        }
+    }
+    private fun setupRecenterButton(rootView: View) {
+        val container = rootView.findViewById<FrameLayout>(R.id.map_container)
         val btnSize = (48 * resources.displayMetrics.density).toInt()
         val margin = (16 * resources.displayMetrics.density).toInt()
 
-        // ✅ 현위치 버튼 (오른쪽 아래)
         val recenterBtn = ImageButton(requireContext()).apply {
             setImageResource(android.R.drawable.ic_menu_mylocation)
             background = ContextCompat.getDrawable(requireContext(), R.drawable.round_button_bg)
             setPadding((12 * resources.displayMetrics.density).toInt())
             contentDescription = "현위치로 이동"
+
             setOnClickListener {
                 followMyLocation = true
-                lastLat?.let { lat ->
-                    lastLon?.let { lon ->
-                        if (isMapReady) {
-                            try {
-                                isProgrammaticMove = true
-                                val cameraPosition = CameraPosition(LatLng(lat, lon), 15.0)
-                                val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
-                                    .animate(CameraAnimation.Easing)
-                                naverMap.moveCamera(cameraUpdate)
-                                Log.d(TAG, "버튼 클릭: 현 위치로 이동 (lat=$lat, lon=$lon)")
-                            } catch (e: Exception) {
-                                Log.e(TAG, "버튼으로 위치 이동 실패", e)
-                            }
-                        }
+
+                val lat = locationManager.lastLat
+                val lon = locationManager.lastLon
+
+                if (lat != null && lon != null && isMapReady) {
+                    try {
+                        isProgrammaticMove = true
+                        val cameraPosition = CameraPosition(LatLng(lat, lon), 15.0)
+                        val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+                            .animate(CameraAnimation.Easing)
+                        naverMap.moveCamera(cameraUpdate)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "버튼으로 위치 이동 실패", e)
                     }
                 }
             }
@@ -306,79 +112,31 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             bottomMargin = margin
         }
         container.addView(recenterBtn, recenterParams)
+    }
+    private fun onLocationUpdatedFromManager(lat: Double, lon: Double) {
+        if (!isMapReady) return
 
-        // 3) Google Location Services 초기화
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext())
+        // 네이버 기본 오버레이 업데이트
+        updateMyLocationMarker(lat, lon)
 
-        locationRequest = LocationRequest.Builder(
-            Priority.PRIORITY_BALANCED_POWER_ACCURACY, // HIGH_ACCURACY → BALANCED 로 완화
-            5000L // 기본 5초 (정확한 주기는 OS가 자동 조절)
-        ).apply {
-            setMinUpdateDistanceMeters(5f)         // 5m 이동 시에만 업데이트
-            setMinUpdateIntervalMillis(3000L)      // 최소 호출 간격 3초
-            setWaitForAccurateLocation(false)
-        }.build()
+        if (isFirstLocation) {
+            isFirstLocation = false
+            followMyLocation = true
 
-        locationCallback = object : LocationCallback() {
-            override fun onLocationResult(locationResult: LocationResult) {
-                locationResult.lastLocation?.let { location ->
-                    val lat = location.latitude
-                    val lon = location.longitude
-
-                    if (lat == 0.0 || lon == 0.0) return
-
-                    lastLat = lat
-                    lastLon = lon
-
-                    // 지도가 준비된 경우에만 위치 업데이트
-                    if (isMapReady) {
-                        try {
-                            // 내 위치 마커 표시
-                            updateMyLocationMarker(lat, lon)
-
-                            // 첫 위치 받았을 때 자동으로 지도 중심 이동
-                            if (isFirstLocation) {
-                                isFirstLocation = false
-                                isProgrammaticMove = true
-                                val cameraPosition = CameraPosition(LatLng(lat, lon), 15.0)
-                                val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
-                                naverMap.moveCamera(cameraUpdate)
-                                followMyLocation = true
-                                Log.d(TAG, "첫 위치 설정 완료")
-                            }
-
-                            // 자동 추적 모드일 때 지도 중심 이동
-                            if (followMyLocation) {
-                                isProgrammaticMove = true
-                                val cameraUpdate = CameraUpdate.scrollTo(LatLng(lat, lon))
-                                    .animate(CameraAnimation.Easing)
-                                naverMap.moveCamera(cameraUpdate)
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "위치 업데이트 실패", e)
-                        }
-                    }
-
-                    // ✅ Firestore 업로드 조건 체크 (10m 이상 OR 30초 경과)
-                    checkAndUploadLocation(lat, lon)
-                }
-            }
+            isProgrammaticMove = true
+            val cameraPosition = CameraPosition(LatLng(lat, lon), 15.0)
+            val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+            naverMap.moveCamera(cameraUpdate)
         }
 
-        // 4) 권한 체크 후 위치 업데이트 시작
-        if (hasLocationPermission()) {
-            startLocationUpdates()
-        } else {
-            ActivityCompat.requestPermissions(
-                requireActivity(),
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                ),
-                REQ_LOCATION
-            )
+        if (followMyLocation) {
+            isProgrammaticMove = true
+            val cameraUpdate = CameraUpdate.scrollTo(LatLng(lat, lon))
+                .animate(CameraAnimation.Easing)
+            naverMap.moveCamera(cameraUpdate)
         }
     }
+
 
     override fun onMapReady(map: NaverMap) {
         naverMap = map
@@ -397,9 +155,8 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             // 초기 카메라 위치 (서울시청)
             val defaultLat = 37.5665
             val defaultLon = 126.9780
-
-            val targetLat = lastLat ?: defaultLat
-            val targetLon = lastLon ?: defaultLon
+            val targetLat = locationManager.lastLat ?: defaultLat
+            val targetLon = locationManager.lastLon ?: defaultLon
 
             // ✅ CameraPosition 사용
             isProgrammaticMove = true
@@ -426,9 +183,9 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             }
         }
 
-        // 내 위치가 있으면 오버레이 위치 설정
-        lastLat?.let { lat ->
-            lastLon?.let { lon ->
+        // 현재 위치가 이미 있으면 오버레이/카메라 맞춰주기
+        locationManager.lastLat?.let { lat ->
+            locationManager.lastLon?.let { lon ->
                 updateMyLocationMarker(lat, lon)
                 if (followMyLocation) {
                     isProgrammaticMove = true
@@ -439,16 +196,33 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             }
         }
 
-        // ✅ 지도 준비 완료 후 혼잡도 리스너 시작
-        startCongestionListener()
+        // 혼잡도 매니저
+        congestionManager = CongestionOverlayManager(
+            naverMap = naverMap,
+            repo = repo
+        ) { lat, lon, zoom ->
+            isProgrammaticMove = true
+            val cameraPosition = CameraPosition(LatLng(lat, lon), zoom)
+            val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+                .animate(CameraAnimation.Easing)
+            naverMap.moveCamera(cameraUpdate)
+        }
+        congestionManager.showCongestion = showCongestion
+        congestionManager.start()
 
-        // ✅ 포트홀 리스너도 시작 (FireStore → 지도)
-        startPotholeListener()
-
-        // ⚙️ DEBUG: 더미 포트홀 표시 (실제 모델과 같이 쓰면 헷갈리니 필요할 때만 켜기)
-        // if (BuildConfig.SHOW_DUMMY_POTHOLES) {
-        //     loadDummyPotholes()
-        // }
+        // 포트홀 매니저
+        potholeManager = PotholeOverlayManager(
+            naverMap = naverMap,
+            potholeRepo = potholeRepo
+        ) { lat, lon, zoom ->
+            isProgrammaticMove = true
+            val cameraPosition = CameraPosition(LatLng(lat, lon), zoom)
+            val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+                .animate(CameraAnimation.Easing)
+            naverMap.moveCamera(cameraUpdate)
+        }
+        potholeManager.showPotholeMarkers = showPotholeMarkers
+        potholeManager.start()
     }
 
     /**
@@ -465,355 +239,30 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         }
     }
 
-    /**
-     * ✅ 위치 업로드 조건 체크
-     * - 10m 이상 이동 OR 30초 경과 시 업로드
-     */
-    private fun checkAndUploadLocation(lat: Double, lon: Double) {
-        val currentTime = System.currentTimeMillis()
-        val timeDiff = currentTime - lastUploadTime
-
-        // 거리 체크 (10m 이상 이동했는가?)
-        val distanceMoved = lastUploadLat?.let { lastLat ->
-            lastUploadLon?.let { lastLon ->
-                calculateDistance(lastLat, lastLon, lat, lon)
-            }
-        } ?: Double.MAX_VALUE
-
-        // 조건: 10m 이상 이동 OR 30초 경과
-        val shouldUpload = distanceMoved >= UPLOAD_DISTANCE_THRESHOLD || timeDiff >= UPLOAD_TIME_THRESHOLD
-
-        if (shouldUpload) {
-            val userId = auth.currentUser?.uid ?: "anonymous"
-
-            // ✅ 업로드 전에 위치를 격자에 맞춰서 뭉개기
-            val (safeLat, safeLon) = quantizeLatLon(lat, lon)
-
-            repo.uploadLocation(userId, safeLat, safeLon)
-
-            lastUploadLat = lat
-            lastUploadLon = lon
-            lastUploadTime = currentTime
-
-            Log.d(TAG, "위치 업로드: 이동거리=${distanceMoved.toInt()}m, 경과시간=${timeDiff / 1000}초")
-        }
-    }
-
-    /**
-     * 두 지점 간 거리 계산 (미터)
-     */
-    private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val earthRadius = 6371000.0
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-
-        val a = sin(dLat / 2).pow(2) +
-                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-                sin(dLon / 2).pow(2)
-
-        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-
-        return earthRadius * c
-    }
-
-    private fun quantizeLatLon(lat: Double, lon: Double): Pair<Double, Double> {
-        // factor 클수록 더 정밀, 작을수록 더 거칠어짐
-        // 대략 111km * 0.001 ≈ 110m 정도
-        val factor = 1000.0   // 소수점 셋째 자리까지
-        val qLat = kotlin.math.round(lat * factor) / factor
-        val qLon = kotlin.math.round(lon * factor) / factor
-        return qLat to qLon
-    }
-
-    /**
-     * ✅ 혼잡도 실시간 리스너 시작
-     */
-    private fun startCongestionListener() {
-        locationListener = repo.listenRecentLocations(minutesAgo = 2) { realLocations ->
-
-            val finalLocations =
-                if (BuildConfig.USE_DUMMY_BIKE_DATA) {
-                    realLocations + BikeDummyData.generate()
-                } else {
-                    realLocations
-                }
-
-            updateCongestionClusters(finalLocations)
-        }
-    }
-
-    /**
-     * ✅ 혼잡도 클러스터 업데이트 및 지도에 표시
-     *
-     * 🔧 변경 사항:
-     * - 기존: clearAllOverlays()로 전부 지우고 매번 새로 생성
-     * - 변경: 리스트 크기만 맞춰서 Circle/Marker를 재사용
-     */
-    private fun updateCongestionClusters(locations: List<LocationData>) {
-        if (!isMapReady) return
-
-        // 🔁 혼잡도 레이어 OFF일 때: 지도에서만 숨기고 계산은 안 함
-        if (!showCongestion) {
-            clusterCircles.forEach { it.map = null }
-            clusterMarkers.forEach { it.map = null }
+    fun addPotholeFromCurrentLocationFromModel() {
+        // 0) locationManager 준비 여부 체크 (lateinit 보호)
+        if (!this::locationManager.isInitialized) {
+            Log.d(TAG, "addPotholeFromCurrentLocationFromModel: locationManager 미초기화, 무시")
             return
         }
 
-        try {
-            val allLocations = locations
-            Log.d(TAG, "실제 사용자 위치 ${allLocations.size}개로 혼잡도 계산")
-
-            // 클러스터 생성 (성능 최적화된 계산 로직)
-            val clusters = CongestionCalculator.createClusters(allLocations, radiusMeters = 150.0)
-            Log.d(TAG, "생성된 클러스터: ${clusters.size}개")
-
-            val mergedClusters = mergeNearbyClusters(clusters)
-
-            // 1~4명: 표시 안 함
-            val displayClusters = mergedClusters.filter { it.userCount >= 5 }
-            Log.d(TAG, "표시 대상 클러스터: ${displayClusters.size}개 (5명 이상만 표시)")
-
-            // 필요한 만큼 CircleOverlay / Marker를 확보 (부족하면 생성)
-            while (clusterCircles.size < displayClusters.size) {
-                clusterCircles.add(CircleOverlay())
-            }
-            while (clusterMarkers.size < displayClusters.size) {
-                clusterMarkers.add(Marker())
-            }
-
-            // 클러스터별로 오버레이 설정 및 지도에 표시
-            displayClusters.forEachIndexed { index, cluster ->
-                // 1. 원형 오버레이 설정
-                val circle = clusterCircles[index]
-                circle.apply {
-                    center = LatLng(cluster.centerLat, cluster.centerLon)
-                    radius = 150.0
-                    color = addAlphaToColor(cluster.level.color, 0.55f)
-                    outlineColor = addAlphaToColor(cluster.level.color, 0.86f)
-                    outlineWidth = 6
-                    map = naverMap
-                }
-
-                // 2. 중앙 숫자 마커 설정
-                val marker = clusterMarkers[index]
-                marker.apply {
-                    position = LatLng(cluster.centerLat, cluster.centerLon)
-                    icon = createMarkerIcon(cluster.userCount, cluster.level)
-                    width = 80
-                    height = 80
-                    map = naverMap
-
-                    // ✅ 클릭 시 해당 위치로 줌인
-                    setOnClickListener {
-                        isProgrammaticMove = true
-                        val cameraPosition = CameraPosition(
-                            LatLng(cluster.centerLat, cluster.centerLon),
-                            15.0  // 줌 레벨 (원하는 대로 조정)
-                        )
-                        val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
-                            .animate(CameraAnimation.Easing)
-                        naverMap.moveCamera(cameraUpdate)
-                        true // 이벤트 소비
-                    }
-                }
-
-                Log.d(
-                    TAG,
-                    "✅ 클러스터 표시: index=$index, (${cluster.userCount}명, ${cluster.level.displayName})"
-                )
-            }
-
-            // 더 이상 필요 없는 오버레이들은 map에서만 제거 (객체는 재사용)
-            for (i in displayClusters.size until clusterCircles.size) {
-                clusterCircles[i].map = null
-            }
-            for (i in displayClusters.size until clusterMarkers.size) {
-                clusterMarkers[i].map = null
-            }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "클러스터 업데이트 실패", e)
-        }
-    }
-
-    /**
-     * ✅ 마커 내부에 숫자가 있는 커스텀 아이콘 생성
-     */
-    private fun createMarkerIcon(count: Int, level: CongestionLevel): OverlayImage {
-        val size = 80 // dp
-        val density = resources.displayMetrics.density
-        val pixelSize = (size * density).toInt()
-
-        val bitmap = android.graphics.Bitmap.createBitmap(
-            pixelSize,
-            pixelSize,
-            android.graphics.Bitmap.Config.ARGB_8888
-        )
-        val canvas = android.graphics.Canvas(bitmap)
-
-        // 원형 배경 그리기
-        val paint = android.graphics.Paint().apply {
-            isAntiAlias = true
-            style = android.graphics.Paint.Style.FILL
-            color = level.color
-        }
-
-        val centerX = pixelSize / 2f
-        val centerY = pixelSize / 2f
-        val radius = pixelSize / 2.5f
-
-        canvas.drawCircle(centerX, centerY, radius, paint)
-
-        // 테두리 그리기
-        val strokePaint = android.graphics.Paint().apply {
-            isAntiAlias = true
-            style = android.graphics.Paint.Style.STROKE
-            color = Color.WHITE
-            strokeWidth = 4f * density
-        }
-        canvas.drawCircle(centerX, centerY, radius, strokePaint)
-
-        // 숫자 그리기
-        val textPaint = android.graphics.Paint().apply {
-            isAntiAlias = true
-            color = Color.WHITE
-            textSize = 24f * density
-            textAlign = android.graphics.Paint.Align.CENTER
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-
-        val text = count.toString()
-        val textBounds = android.graphics.Rect()
-        textPaint.getTextBounds(text, 0, text.length, textBounds)
-        val textY = centerY - textBounds.exactCenterY()
-
-        canvas.drawText(text, centerX, textY, textPaint)
-
-        return OverlayImage.fromBitmap(bitmap)
-    }
-
-    /**
-     * ✅ 모든 오버레이 제거 (원형 + 혼잡도 마커 + 포트홀 마커)
-     *  - onDestroyView 에서 완전히 정리할 때만 사용
-     */
-    private fun clearAllOverlays() {
-        // 원형 오버레이 제거
-        clusterCircles.forEach { circle ->
-            try {
-                circle.map = null
-            } catch (e: Exception) {
-                Log.w(TAG, "원형 제거 실패", e)
-            }
-        }
-        clusterCircles.clear()
-
-        // 마커 제거
-        clusterMarkers.forEach { marker ->
-            try {
-                marker.map = null
-            } catch (e: Exception) {
-                Log.w(TAG, "마커 제거 실패", e)
-            }
-        }
-        clusterMarkers.clear()
-
-        // ✅ 포트홀 마커 제거
-        potholeMarkers.forEach { marker ->
-            try {
-                marker.map = null
-            } catch (e: Exception) {
-                Log.w(TAG, "포트홀 마커 제거 실패", e)
-            }
-        }
-        potholeMarkers.clear()
-    }
-
-    private fun mergeNearbyClusters(
-        clusters: List<CongestionCluster>,
-        mergeThresholdMeters: Double = 220.0
-    ): List<CongestionCluster> {
-
-        val result = mutableListOf<CongestionCluster>()
-
-        for (cluster in clusters) {
-            val existing = result.firstOrNull {
-                val dist = calculateDistance(
-                    it.centerLat, it.centerLon,
-                    cluster.centerLat, cluster.centerLon
-                )
-                dist < mergeThresholdMeters
-            }
-
-            if (existing == null) {
-                result.add(cluster)
-            } else {
-                val newCount = existing.userCount + cluster.userCount
-                val newLevel = when {
-                    newCount >= 25 -> CongestionLevel.HIGH
-                    newCount >= 10 -> CongestionLevel.MEDIUM
-                    else -> CongestionLevel.LOW
-                }
-
-                val merged = existing.copy(
-                    centerLat = (existing.centerLat + cluster.centerLat) / 2,
-                    centerLon = (existing.centerLon + cluster.centerLon) / 2,
-                    userCount = newCount,
-                    level = newLevel
-                )
-
-
-                result.remove(existing)
-                result.add(merged)
-            }
-        }
-        return result
-    }
-
-    /**
-     * 색상에 투명도 추가
-     */
-    private fun addAlphaToColor(color: Int, alpha: Float): Int {
-        val alphaInt = (alpha * 255).toInt()
-        return Color.argb(
-            alphaInt,
-            Color.red(color),
-            Color.green(color),
-            Color.blue(color)
-        )
-    }
-
-    private fun startLocationUpdates() {
-        if (ActivityCompat.checkSelfPermission(
-                requireContext(),
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(
-                requireContext(),
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+        // 1) 지도 / 포트홀 매니저 준비 여부 체크
+        if (!isMapReady || !this::potholeManager.isInitialized) {
+            Log.d(TAG, "addPotholeFromCurrentLocationFromModel: 지도 또는 potholeManager 준비 안됨, 무시")
             return
         }
 
-        try {
-            fusedLocationClient.requestLocationUpdates(
-                locationRequest,
-                locationCallback,
-                Looper.getMainLooper()
-            )
-            Log.d(TAG, "위치 업데이트 시작")
-        } catch (e: Exception) {
-            Log.e(TAG, "위치 업데이트 시작 실패", e)
-        }
-    }
+        // 2) 위치 확인
+        val lat = locationManager.lastLat
+        val lon = locationManager.lastLon
 
-    private fun stopLocationUpdates() {
-        try {
-            fusedLocationClient.removeLocationUpdates(locationCallback)
-            Log.d(TAG, "위치 업데이트 중지")
-        } catch (e: Exception) {
-            Log.e(TAG, "위치 업데이트 중지 실패", e)
+        if (lat == null || lon == null) {
+            Log.d(TAG, "addPotholeFromCurrentLocationFromModel: 위치 정보 없음, 무시")
+            return
         }
+
+        // 3) 실제 포트홀 추가
+        potholeManager.addPotholeFromLocation(lat, lon)
     }
 
     private fun hasLocationPermission(): Boolean {
@@ -827,6 +276,25 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         )
         return fine == PackageManager.PERMISSION_GRANTED ||
                 coarse == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun startLocationUpdates() {
+        if (!hasLocationPermission()) {
+            ActivityCompat.requestPermissions(
+                requireActivity(),
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
+                REQ_LOCATION
+            )
+            return
+        }
+        locationManager.start()
+    }
+
+    private fun stopLocationUpdates() {
+        locationManager.stop()
     }
 
     override fun onStart() {
@@ -846,17 +314,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             startLocationUpdates()
         }
 
-        // 혼잡도 리스너 재시작
-        if (isMapReady && locationListener == null) {
-            startCongestionListener()
-        }
-
-        // 포트홀 리스너 재시작
-        if (isMapReady && potholeListener == null) {
-            startPotholeListener()
+        if (isMapReady) {
+            congestionManager.showCongestion = showCongestion
+            potholeManager.showPotholeMarkers = showPotholeMarkers
         }
     }
-
 
     override fun onPause() {
         super.onPause()
@@ -878,19 +340,17 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         super.onDestroyView()
         stopLocationUpdates()
 
-        // ✅ 혼잡도 리스너 해제
-        locationListener?.remove()
-        locationListener = null
-
-        // ✅ 포트홀 리스너 해제
-        potholeListener?.remove()
-        potholeListener = null
-
-        // ✅ 모든 오버레이 제거 (다음에 다시 생성)
-        clearAllOverlays()
+        // 매니저 정리
+        if (this::congestionManager.isInitialized) {
+            congestionManager.stop()
+        }
+        if (this::potholeManager.isInitialized) {
+            potholeManager.stop()
+        }
 
         mapView.onDestroy()
     }
+
 
     override fun onLowMemory() {
         super.onLowMemory()
