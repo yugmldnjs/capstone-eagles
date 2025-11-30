@@ -117,7 +117,8 @@ class StorageActivity : AppCompatActivity() {
             val retriever = MediaMetadataRetriever()
             retriever.setDataSource(file.absolutePath)
 
-            val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(file.nameWithoutExtension.substring(file.name.length-24))
+            val dateString = file.name.substring(file.name.length - 27, file.name.length - 4)
+            val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(dateString)
             val size = file.length()
             val durationString = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
             val duration = durationString?.toLongOrNull() ?: 0L
