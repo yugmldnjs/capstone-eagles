@@ -143,10 +143,10 @@ class MainActivity2 : AppCompatActivity() {
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // 1초마다, 높은 정확도로 요청
+        // 0.5초마다, 높은 정확도로 요청
         locationRequest = LocationRequest.Builder(
             Priority.PRIORITY_HIGH_ACCURACY,
-            1000
+            500
         ).setMinUpdateDistanceMeters(0f).build()
 
         checkLocationPermission()
