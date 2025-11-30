@@ -63,9 +63,10 @@ class EventExtractionWorker(
      */
     private suspend fun extractEventVideo(sourceVideo: File, event: EventEntity): Boolean {
         // 1. 영상 시작 시간과 이벤트 시간 계산
-        val videoCreationTime = sourceVideo.lastModified()
+        val videoStartTime = event.recordingStartTimestamp
+
         val eventTime = event.timestamp
-        val eventOffsetSeconds = (event.timestamp - videoCreationTime) / 1000.0
+        val eventOffsetSeconds = (event.timestamp - videoStartTime) / 1000.0
 
         // 2. 추출 구간 계산 (이벤트 30초 전 ~ 30초 후)
         val startTime = maxOf(0.0, eventOffsetSeconds - 3.0)

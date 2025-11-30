@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 data class EventEntity(
     @PrimaryKey
     val timestamp: Long,                    // 이벤트 발생 시간 (밀리초)
+    val recordingStartTimestamp: Long,      // 녹화 시작 시간 (밀리초)
     val type: String,                       // "impact", "emergency_brake", "manual"
     val latitude: Double?,                  // GPS 위도
     val longitude: Double?,                 // GPS 경도

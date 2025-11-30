@@ -463,6 +463,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         Log.d(TAG, "location: ${location?.latitude}, ${location?.longitude}")
         val event = EventEntity(
             timestamp = timestamp,
+            recordingStartTimestamp = currentRecordingStartTime,
             type = "event",
             latitude = location?.latitude,
             longitude = location?.longitude,

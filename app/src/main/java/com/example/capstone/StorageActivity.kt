@@ -113,7 +113,7 @@ class StorageActivity : AppCompatActivity() {
             val retriever = MediaMetadataRetriever()
             retriever.setDataSource(file.absolutePath)
 
-            val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(file.name.substring(file.name.length-27, file.name.length-3))
+            val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(file.nameWithoutExtension.substring(file.name.length-24))
             val size = file.length()
             val durationString = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
             val duration = durationString?.toLongOrNull() ?: 0L
@@ -127,7 +127,7 @@ class StorageActivity : AppCompatActivity() {
             }
 
             return VideoItem(
-                videoPath = file.absolutePath, // MediaStore URI 대신 실제 파일 경로 사용
+                videoPath = file.absolutePath,
                 date = SimpleDateFormat("yyyy/MM/dd", Locale.KOREA).format(date),
                 time = SimpleDateFormat("HH시 mm분", Locale.KOREA).format(date),
                 location = locationString,
