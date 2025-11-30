@@ -231,16 +231,37 @@ class StorageActivity : AppCompatActivity() {
             mutableListOf(),
             onDeleteCallback = { deletedItem ->
                 try {
-                    val deletedRows = contentResolver.delete(deletedItem.videoPath.toUri(), null, null)
-                    if (deletedRows > 0) {
-                        Toast.makeText(this, "영상을 삭제했습니다.", Toast.LENGTH_SHORT).show()
+                    val file = File(deletedItem.videoPath)
+
+                    // 1. 파일이 존재하는지 확인
+                    if (file.exists()) {
+                        // 2. 삭제 시도
+                        if (file.delete()) {
+                            Toast.makeText(this, "영상을 삭제했습니다", Toast.LENGTH_SHORT).show()
+
+                            // 데이터 리스트 갱신
+                            fullVideoList.remove(deletedItem)
+                            eventVideoList.remove(deletedItem)
+
+                            // 화면 갱신
+                            val currentList = if (binding.fullVideoUnderline.isVisible) fullVideoList else eventVideoList
+                            storageAdapter.updateList(currentList)
+                            checkEmptyList()
+                        } else {
+                            Toast.makeText(this, "영상 삭제에 실패했습니다", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        // 예외: 파일이 이미 없는 경우 (유령 파일) -> 리스트 정리해줌
                         fullVideoList.remove(deletedItem)
                         eventVideoList.remove(deletedItem)
-                        storageAdapter.updateList(if (binding.fullVideoUnderline.isVisible) fullVideoList else eventVideoList)
+
+                        val currentList = if (binding.fullVideoUnderline.isVisible) fullVideoList else eventVideoList
+                        storageAdapter.updateList(currentList)
                         checkEmptyList()
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(this, "영상 삭제에 실패했습니다.", Toast.LENGTH_SHORT).show()
+                    // 에러 발생 시
+                    Toast.makeText(this, "오류 발생: ${e.message}", Toast.LENGTH_SHORT).show()
                     Log.e("StorageActivity", "Error deleting video", e)
                 }
             },

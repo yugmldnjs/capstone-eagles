@@ -77,8 +77,7 @@ class StorageAdapter(
                     // 삭제하기 전에 어떤 아이템인지 변수에 저장
                     val itemToRemove = videoList[currentPosition]
 
-                    videoList.removeAt(currentPosition)
-                    notifyItemRemoved(currentPosition)
+                    onDeleteCallback(itemToRemove)
 
                     // 콜백 함수를 호출할 때 삭제된 아이템을 넘겨줌
                     onDeleteCallback(itemToRemove)
