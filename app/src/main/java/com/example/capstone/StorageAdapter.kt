@@ -13,7 +13,8 @@ import com.example.capstone.databinding.ItemStorageBinding
 class StorageAdapter(
     private val videoList: MutableList<VideoItem>,
     private val onDeleteCallback: (VideoItem) -> Unit,
-    private val onItemClick: (VideoItem) -> Unit  // 리스트가 클릭되었을 때 받아올 수 있도록
+    private val onItemClick: (VideoItem) -> Unit,  // 리스트가 클릭되었을 때 받아올 수 있도록
+    private val onDownloadClick: (VideoItem) -> Unit
 ) : RecyclerView.Adapter<StorageAdapter.StorageViewHolder>() {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): StorageViewHolder {
@@ -30,7 +31,7 @@ class StorageAdapter(
 
         // 🔴🔴🔴 썸네일 로딩 로직 시작 🔴🔴🔴
         Glide.with(holder.itemView.context) // 1. Glide를 현재 아이템뷰의 context로 초기화
-            .load(Uri.parse(currentItem.videoPath)) // 2. 비디오 경로(URI)를 로드
+            .load(currentItem.videoPath) // 2. 비디오 경로를 로드
             .placeholder(R.drawable.loading) // 3. 로딩 중에 보여줄 기본 이미지
             .error(R.drawable.loading) // 4. 에러 발생 시 보여줄 기본 이미지
             .into(holder.binding.thumbnailImageView) // 5. 이미지를 표시할 ImageView 지정
@@ -46,6 +47,11 @@ class StorageAdapter(
         // 각 아이템 뷰 전체에 클릭 리스너를 설정 -> 리사이클러뷰는 이렇게 따로 클릭 리스너 설정을 해줘야한다함.
         holder.itemView.setOnClickListener {
             onItemClick(currentItem)
+        }
+        // 다운로드 버튼 클릭 시 동작 연결
+        holder.binding.downloadButton.setOnClickListener {
+            // 액티비티한테 다운로드 신호 보냄
+            onDownloadClick(currentItem)
         }
 
 

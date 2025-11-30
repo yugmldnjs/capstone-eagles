@@ -1,5 +1,6 @@
 package com.example.capstone
 
+import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -23,12 +24,15 @@ import androidx.core.view.isVisible
 import kotlin.collections.mutableListOf
 import android.media.MediaMetadataRetriever
 import android.location.Geocoder
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.lifecycle.lifecycleScope
 import com.example.capstone.database.BikiDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 import java.util.regex.Pattern
 
 data class VideoItem(
@@ -244,7 +248,11 @@ class StorageActivity : AppCompatActivity() {
                     putExtra("VIDEO_PATH", clickedVideo.videoPath)
                 }
                 startActivity(intent)
+            },
+            onDownloadClick = { videoItem ->
+                saveToGallery(videoItem)
             }
+
         )
 
         binding.storageRecyclerView.adapter = storageAdapter
@@ -252,6 +260,57 @@ class StorageActivity : AppCompatActivity() {
         binding.storageRecyclerView.addItemDecoration(DividerItemDecoration(this, LinearLayoutManager.VERTICAL))
     }
 
+    //갤러리 영상 저장 함수
+    private fun saveToGallery(videoItem: VideoItem) {
+        val sourceFile = File(videoItem.videoPath)
+
+        // 1. 원본 파일이 있는지 확인
+        if (!sourceFile.exists()) {
+            Toast.makeText(this, "저장 실패: 원본 파일이 없습니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val folderName = if (videoItem.videoPath.contains("Events")) {
+            "Biki_Events"      // 사고 영상이면
+        } else {
+            "Biki_Full"  // 일반 영상이면
+        }
+
+        try {
+            // 2. 갤러리에 저장할 정보 설정 (이름, 타입, 경로 등)
+            val values = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, "Biki_${System.currentTimeMillis()}.mp4")
+                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+                // 갤러리 내 'Movies/BikiVideos' 폴더에 저장
+                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/" + folderName)
+            }
+
+            val resolver = contentResolver
+            val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val itemUri = resolver.insert(collection, values)
+
+            if (itemUri != null) {
+                // 3. 데이터 복사 (원본 -> 갤러리)
+                resolver.openOutputStream(itemUri).use { outputStream ->
+                    FileInputStream(sourceFile).use { inputStream ->
+                        inputStream.copyTo(outputStream!!)
+                    }
+                }
+
+                // 4. 저장 완료 상태로 변경
+                values.clear()
+                values.put(MediaStore.Video.Media.IS_PENDING, 0)
+                resolver.update(itemUri, values, null, null)
+
+
+                Toast.makeText(this, "갤러리에 영상이 저장되었습니다", Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            Log.e("StorageActivity", "Gallery Save Error", e)
+            Toast.makeText(this, "저장 실패: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
     private fun selectFullVideoTab() {
         binding.fullVideoUnderline.visibility = View.VISIBLE
         binding.eventVideoUnderline.visibility = View.GONE

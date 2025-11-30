@@ -255,6 +255,12 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         }
 
         val fileOutputOptions = FileOutputOptions.Builder(currentRecordingFile!!)
+            .apply {
+                // 위치 정보가 있으면 파일 메타데이터에 심어줍니다.
+                if (location != null) {
+                    setLocation(location)
+                }
+            }
             .build()
 
         val audioPermission = ContextCompat.checkSelfPermission(
