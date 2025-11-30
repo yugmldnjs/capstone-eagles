@@ -23,7 +23,8 @@ abstract class BikiDatabase : RoomDatabase() {
                     context.applicationContext,
                     BikiDatabase::class.java,
                     "biki_database"  // DB 파일 이름
-                ).build()
+                ).fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

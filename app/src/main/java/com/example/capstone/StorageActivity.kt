@@ -113,7 +113,7 @@ class StorageActivity : AppCompatActivity() {
             val retriever = MediaMetadataRetriever()
             retriever.setDataSource(file.absolutePath)
 
-            val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(file.nameWithoutExtension.substring(file.name.length-24))
+            val date = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.KOREA).parse(file.nameWithoutExtension.substring(file.nameWithoutExtension.length-15))
             val size = file.length()
             val durationString = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
             val duration = durationString?.toLongOrNull() ?: 0L
@@ -121,7 +121,7 @@ class StorageActivity : AppCompatActivity() {
             retriever.release() // 리소스 해제
 
             val locationString = if (file.absolutePath.contains("Events")) {
-                getLocationFromDb(date.time)
+                getLocationFromDb(file.absolutePath)
             } else {
                 getVideoLocation(file.absolutePath.toUri())
             }
@@ -189,13 +189,13 @@ class StorageActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun getLocationFromDb(eventTimestamp: Long): String {
+    private suspend fun getLocationFromDb(eventVideoPath: String): String {
         return try {
             // DB에서 이벤트 찾기
             val database = BikiDatabase.getDatabase(this)
             val eventDao = database.eventDao()
 
-            val event = eventDao.getEventByTimestamp(eventTimestamp)
+            val event = eventDao.getEventByExtractedVideoPath(eventVideoPath)
             if (event != null && event.latitude != null && event.longitude != null) {
                 Log.d("StorageActivity", "위치 정보 로딩 성공: ${event.latitude}, ${event.longitude}")
                 getAddressFromLocation(event.latitude, event.longitude)

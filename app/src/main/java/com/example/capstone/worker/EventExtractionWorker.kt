@@ -4,8 +4,11 @@ import android.content.Context
 import android.util.Log
 import androidx.work.*
 import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.ReturnCode
 import com.example.capstone.database.BikiDatabase
+import com.example.capstone.database.EventDao
 import com.example.capstone.database.EventEntity
+import com.example.capstone.util.SrtExtractor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -13,140 +16,210 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 
+/**
+ * 이벤트 영상 추출 Worker (SRT 파일 포함)
+ *
+ * 1. 이벤트 전후 10초 영상 추출 (FFmpeg)
+ * 2. 해당 구간의 SRT도 추출 (SrtExtractor)
+ */
 class EventExtractionWorker(
     context: Context,
     params: WorkerParameters
 ) : CoroutineWorker(context, params) {
 
-    private val eventDao = BikiDatabase.getDatabase(context).eventDao()
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val database = BikiDatabase.getDatabase(applicationContext)
+        val eventDao = database.eventDao()
 
-    /**
-     * WorkManager가 백그라운드에서 자동 실행
-     * @return Result.success() 또는 Result.retry()
-     */
-    override suspend fun doWork(): Result {
-        // 입력 데이터에서 영상 경로 가져오기
-        val videoPath = inputData.getString("video_path") ?: return Result.failure()
-        val videoFile = File(videoPath)
+        try {
+            // pending 상태의 이벤트들 조회
+            val pendingEvents = eventDao.getPendingExtractions()
 
-        if (!videoFile.exists()) {
-            Log.e("ExtractionWorker", "원본 영상이 없음: $videoPath")
-            return Result.failure()
-        }
+            Log.d(TAG, "📋 추출 대기 중인 이벤트: ${pendingEvents.size}개")
 
-        // 해당 영상과 연관된 pending 이벤트들 가져오기
-        val pendingEvents = eventDao.getPendingExtractions()
-            .filter { it.videoFilePath == videoPath }
-
-        if (pendingEvents.isEmpty()) {
-            Log.d("ExtractionWorker", "추출할 이벤트 없음")
-            return Result.success()
-        }
-
-        Log.d("ExtractionWorker", "📹 ${pendingEvents.size}개 이벤트 추출 시작")
-
-        var successCount = 0
-        pendingEvents.forEach { event ->
-            if (extractEventVideo(videoFile, event)) {
-                successCount++
+            pendingEvents.forEach { event ->
+                extractEventVideoAndSrt(event, eventDao)
             }
-        }
 
-        return if (successCount > 0) Result.success() else Result.retry()
+            Result.success()
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ 이벤트 추출 실패", e)
+            Result.retry()
+        }
     }
 
     /**
-     * FFmpeg로 특정 구간 추출
-     * @param sourceVideo 원본 녹화 파일 (예: ride_1234567890.mp4)
-     * @param event 추출할 이벤트 정보
-     * @return 성공 여부
+     * 이벤트 영상 + SRT 추출
      */
-    private suspend fun extractEventVideo(sourceVideo: File, event: EventEntity): Boolean {
-        // 1. 영상 시작 시간과 이벤트 시간 계산
-        val videoStartTime = event.recordingStartTimestamp
+    private suspend fun extractEventVideoAndSrt(event: EventEntity, eventDao: EventDao) {
+        // videoFilePath 확인
+        val videoPath = event.videoFilePath ?: run {
+            Log.e(TAG, "❌ Event ${event.id}: videoFilePath가 null")
+            return
+        }
 
-        val eventTime = event.timestamp
-        val eventOffsetSeconds = (event.timestamp - videoStartTime) / 1000.0
+        val videoFile = File(videoPath)
+        if (!videoFile.exists()) {
+            Log.e(TAG, "❌ Event ${event.id}: 영상 파일 없음 - $videoPath")
+            eventDao.update(event.copy(status = "failed"))
+            return
+        }
 
-        // 2. 추출 구간 계산 (이벤트 30초 전 ~ 30초 후)
-        val startTime = maxOf(0.0, eventOffsetSeconds - 3.0)
-        val duration = 6.0  // 60초
+        // SRT 파일 경로 확인
+        val srtFile = File(videoFile.parent, videoFile.nameWithoutExtension + ".srt")
+        if (!srtFile.exists()) {
+            Log.w(TAG, "⚠️ Event ${event.id}: SRT 파일 없음 - ${srtFile.path}")
+            // SRT 없어도 영상은 추출
+        }
 
-        // 3. 출력 파일 경로 생성
-        val outputFile = File(
-            applicationContext.getExternalFilesDir("Events"),  // 이벤트 전용 폴더
-            "events_${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
-                .format(eventTime)}.mp4"
-        ).apply { parentFile?.mkdirs() }
+        // 상태 업데이트: extracting
+        eventDao.update(event.copy(status = "extracting"))
+        Log.d(TAG, "🎬 Event ${event.id}: 추출 시작")
+        Log.d(TAG, "   영상: ${videoFile.name}")
+        if (srtFile.exists()) {
+            Log.d(TAG, "   SRT: ${srtFile.name}")
+        }
 
-        // 4. FFmpeg 명령어 실행
-        val command = "-ss $startTime -i ${sourceVideo.absolutePath} -t $duration -c copy ${outputFile.absolutePath}"
+        try {
+            // 1️⃣ 추출 구간 계산
+            val videoStartTime = event.recordingStartTimestamp
 
-        return withContext(Dispatchers.IO) {
-            try {
-                // 상태 업데이트: extracting
-                eventDao.update(event.copy(status = "extracting"))
+            val eventTime = event.timestamp
+            val eventRelativeTime = eventTime - videoStartTime
 
-                // FFmpeg 실행 (동기)
-                val session = FFmpegKit.execute(command)
+            val startTime = maxOf(0, eventRelativeTime - 3000)
+            val duration = 6000L  // 60초
 
-                if (session.returnCode.isValueSuccess) {
-                    // 추출 성공 - DB 업데이트
-                    eventDao.update(event.copy(
-                        extractedVideoPath = outputFile.absolutePath,
-                        status = "completed"
-                    ))
+            Log.d(TAG, "   이벤트 시각: ${eventRelativeTime}ms")
+            Log.d(TAG, "   추출 구간: ${startTime}ms ~ ${startTime + duration}ms")
 
-                    // 메타데이터 JSON 저장
-                    //saveEventMetadata(event, outputFile)
+            // 2️⃣ 출력 파일 경로
+            val outputDir = File(applicationContext.getExternalFilesDir(null), "Events")
+            if (!outputDir.exists()) outputDir.mkdirs()
 
-                    Log.d("ExtractionWorker", "✅ 추출 완료: ${eventTime}")
-                    true
-                } else {
-                    Log.e("ExtractionWorker", "❌ 추출 실패: ${session.output}")
-                    eventDao.update(event.copy(status = "failed"))
-                    false
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "추출 중 예외 발생", e)
+            val fileName = "events_${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
+                .format(eventTime)}"
+            val outputVideoFile = File(outputDir, "${fileName}.mp4")
+            val outputSrtFile = File(outputDir, "${fileName}.srt")
+
+            // 3️⃣ FFmpeg로 영상 추출
+            val success = extractVideo(videoFile, outputVideoFile, startTime, duration, event.latitude, event.longitude)
+
+            if (!success) {
                 eventDao.update(event.copy(status = "failed"))
+                Log.e(TAG, "❌ Event ${event.id}: FFmpeg 실패")
+                return
+            }
+
+
+            // 4️⃣ SRT 추출 (원본 SRT가 있는 경우)
+            if (srtFile.exists()) {
+                val srtSuccess = SrtExtractor.extractSrtSegment(
+                    sourceSrtFile = srtFile,
+                    outputSrtFile = outputSrtFile,
+                    extractStartMs = startTime,
+                    extractDurationMs = duration
+                )
+
+                if (srtSuccess) {
+                    Log.d(TAG, "✅ Event ${event.id}: SRT 추출 완료 - ${outputSrtFile.name}")
+
+                    // 디버그: SRT 내용 출력
+                    SrtExtractor.printSrtInfo(outputSrtFile)
+                } else {
+                    Log.w(TAG, "⚠️ Event ${event.id}: SRT 추출 실패")
+                }
+            }
+
+            // 5️⃣ DB 업데이트
+            eventDao.update(event.copy(
+                extractedVideoPath = outputVideoFile.absolutePath,
+                status = "completed"
+            ))
+
+            Log.d(TAG, "✅ Event ${event.id}: 추출 완료")
+            Log.d(TAG, "   영상: ${outputVideoFile.name}")
+            if (outputSrtFile.exists()) {
+                Log.d(TAG, "   SRT: ${outputSrtFile.name} (${outputSrtFile.length()} bytes)")
+            }
+
+        } catch (e: Exception) {
+            eventDao.update(event.copy(status = "failed"))
+            Log.e(TAG, "❌ Event ${event.id}: 추출 중 오류", e)
+        }
+    }
+
+    /**
+     * FFmpeg를 사용한 영상 추출
+     */
+    private fun extractVideo(
+        sourceFile: File,
+        outputFile: File,
+        startTimeMs: Long,
+        durationMs: Long,
+        latitude: Double?,
+        longitude: Double?
+    ): Boolean {
+        try {
+            val startSeconds = startTimeMs / 1000.0
+            val durationSeconds = durationMs / 1000.0
+
+            val gpsMetadata = if (latitude != null && longitude != null) {
+                // FFmpeg는 location 태그에 ISO 6709 표준 형식(+lat+lon/)을 사용합니다.
+                // 예: +35.1812-126.9105/
+                String.format(Locale.KOREA, "-metadata location=%+.4f%+.4f/ ", latitude, longitude)
+            } else {
+                "" // 위치 정보가 없으면 빈 문자열
+            }
+
+            Log.d(TAG, "gps: $gpsMetadata")
+
+
+
+            val command = "-i ${sourceFile.absolutePath} " +
+                    "-ss $startSeconds " +
+                    "-t $durationSeconds " +
+                    "-c copy " +
+                    gpsMetadata +
+                    outputFile.absolutePath
+
+            Log.d(TAG, "🎬 FFmpeg 명령: $command")
+
+            val session = FFmpegKit.execute(command)
+
+            return if (ReturnCode.isSuccess(session.returnCode)) {
+                Log.d(TAG, "✅ FFmpeg 성공: ${outputFile.name}")
+                Log.d(TAG, "   로그: ${session.output}")
+                true
+            } else {
+                Log.e(TAG, "❌ FFmpeg 실패: ${session.returnCode}")
+                Log.e(TAG, "   로그: ${session.output}")
                 false
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ FFmpeg 실행 오류", e)
+            return false
         }
     }
-    companion object {
-        private const val TAG = "ExtractionWorker"
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
-    }
-    /**
-     * 이벤트 메타데이터를 JSON으로 저장
-     * - 영상과 같은 폴더에 _meta.json 파일 생성
-     */
-//    private fun saveEventMetadata(event: EventEntity, videoFile: File) {
-//        val metadata = JSONObject().apply {
-//            put("timestamp", event.timestamp)
-//            put("recordingStartTimestamp", event.recordingStartTimestamp)
-//            put("type", event.type)
-//            put("videoPath", videoFile.absolutePath)
-//            put("latitude", event.latitude)
-//            put("longitude", event.longitude)
-//            put("speed", event.speed)
-//            put("accelerometer", JSONObject().apply {
-//                put("x", event.accelerometerX)
-//                put("y", event.accelerometerY)
-//                put("z", event.accelerometerZ)
-//            })
-//            event.gyroX?.let {
-//                put("gyroscope", JSONObject().apply {
-//                    put("x", event.gyroX)
-//                    put("y", event.gyroY)
-//                    put("z", event.gyroZ)
-//                })
-//            }
-//        }
-//
-//        val metaFile = File(videoFile.parent, "${videoFile.nameWithoutExtension}_meta.json")
-//        metaFile.writeText(metadata.toString())
-//    }
 
+    companion object {
+        private const val TAG = "EventExtractionWorker"
+        private const val FILENAME_FORMAT = "yyyyMMdd_HHmmss"
+
+        /**
+         * 추출 작업 예약
+         */
+        fun scheduleExtraction(context: Context) {
+            val workRequest = OneTimeWorkRequestBuilder<EventExtractionWorker>()
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiresBatteryNotLow(true)
+                        .build()
+                )
+                .build()
+
+            WorkManager.getInstance(context).enqueue(workRequest)
+            Log.d(TAG, "📋 이벤트 추출 작업 예약")
+        }
+    }
 }

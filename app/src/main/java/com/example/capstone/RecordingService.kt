@@ -12,6 +12,7 @@ import android.location.Location
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.camera.core.Camera
@@ -30,9 +31,10 @@ import androidx.work.*
 import com.example.capstone.database.BikiDatabase
 import com.example.capstone.database.EventDao
 import com.example.capstone.database.EventEntity
+import com.example.capstone.sensor.HybridSensorLogger
 import com.example.capstone.worker.EventExtractionWorker
 import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -61,6 +63,32 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
     var currentSpeed: Float = 0f
     private var lastImpactTimestamp: Long = 0
     private lateinit var eventDao: EventDao
+    // 🆕 하이브리드 센서 로거
+    private var hybridLogger: HybridSensorLogger? = null
+
+    // 🆕 현재 센서 값 (SRT 로깅용)
+    private var currentAccelerometer = FloatArray(3)
+    private var currentGyroscope = FloatArray(3)
+
+    // 🆕 위치 업데이트 콜백
+    private val locationCallback = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult) {
+            result.lastLocation?.let { location ->
+                currentLocation = location
+                currentSpeed = location.speed * 3.6f // m/s -> km/h
+
+                // 녹화 중이고 로거가 있으면 센서 데이터 기록
+                if (recording != null && hybridLogger != null) {
+                    hybridLogger?.logSensorData(
+                        location = location,
+                        speed = currentSpeed,
+                        accelerometer = currentAccelerometer.clone(),
+                        gyroscope = currentGyroscope.clone()
+                    )
+                }
+            }
+        }
+    }
     inner class LocalBinder : Binder() {
         fun getService(): RecordingService = this@RecordingService
     }
@@ -80,7 +108,12 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         eventDao = database.eventDao()
 
         // --- SensorHandler 인스턴스 생성 ---
-        sensorHandler = SensorHandler(this, this)
+        sensorHandler = SensorHandler(this, this).apply {
+            setOnSensorDataListener { accel, gyro ->
+                currentAccelerometer = accel.clone()
+                currentGyroscope = gyro.clone()
+            }
+        }
 
 
         createNotificationChannel()
@@ -254,7 +287,42 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
             parentFile?.mkdirs()
         }
 
+        // 하이브리드 로거 초기화
+        hybridLogger = HybridSensorLogger(
+            videoFile = currentRecordingFile!!,
+            recordingStartTime = currentRecordingStartTime
+        ).also {
+            Log.d(TAG, "✅ HybridSensorLogger 초기화 완료")
+            Log.d(TAG, "   영상: ${currentRecordingFile!!.name}")
+            Log.d(TAG, "   SRT: ${it.getSrtFilePath()}")
+            Log.d(TAG, "   JSON: ${it.getJsonFilePath()}")
+        }
+
+        try {
+            val locationRequest = LocationRequest.Builder(
+                Priority.PRIORITY_HIGH_ACCURACY,
+                1000L // 1초 간격
+            ).apply {
+                setMinUpdateIntervalMillis(500L)
+                setMaxUpdateDelayMillis(2000L)
+            }.build()
+
+            fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                locationCallback,
+                Looper.getMainLooper()
+            )
+            Log.d(TAG, "📍 위치 업데이트 시작 (SRT 로깅용)")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "위치 권한 없음", e)
+        }
+
         val fileOutputOptions = FileOutputOptions.Builder(currentRecordingFile!!)
+            .apply {
+                if (location != null) {
+                    setLocation(location)
+                }
+            }
             .build()
 
         val audioPermission = ContextCompat.checkSelfPermission(
@@ -293,8 +361,11 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
                                 sendBroadcast(Intent(ACTION_RECORDING_SAVED).apply {
                                     putExtra("message", msg)
                                 })
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    hybridLogger?.finalize(eventDao)
+                                }
                                 // WorkManager 예약
-                                finalFile?.let { scheduleEventExtraction(it) }
+                                finalFile?.let { scheduleEventExtraction(it.absolutePath) }
 
                             } else {
                                 Log.e(TAG, "영상 저장 실패: ${recordEvent.error}")
@@ -323,6 +394,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         Log.d(TAG, "stopRecording() called")
         sensorHandler.stop()
         LogToFileHelper.stopLogging()
+        // 🆕 위치 업데이트 중지
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+        Log.d(TAG, "📍 위치 업데이트 중지")
 
         val currentRecording = recording
         if (currentRecording == null) {
@@ -395,7 +469,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
 
 
-        checkLocationPermission(timestamp, linearAccel, null)
+        checkLocationPermission(timestamp, linearAccel, null, "IMPACT", totalAccel)
     }
 
     override fun onSuddenBrakeDetected(linearAccel: FloatArray, horizontalAccel: Float) {
@@ -407,7 +481,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
 
 
-        checkLocationPermission(timestamp, linearAccel, null)
+        checkLocationPermission(timestamp, linearAccel, null, "SUDDEN_BRAKE",horizontalAccel)
     }
 
     override fun onFallDetected(rotation: FloatArray, totalRotation: Float) {
@@ -419,10 +493,10 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
 
 
-        checkLocationPermission(timestamp, floatArrayOf(0f, 0f, 0f), rotation)
+        checkLocationPermission(timestamp, floatArrayOf(0f, 0f, 0f), rotation, "FALL", totalRotation)
     }
 
-    private fun checkLocationPermission(timestamp: Long, accelData: FloatArray, gyroData: FloatArray?) {
+    private fun checkLocationPermission(timestamp: Long, accelData: FloatArray, gyroData: FloatArray?, eventType: String, triggerValue: Float) {
         // --- ⬇️ 여기가 핵심 수정 부분: 위치 정보를 동기적으로 가져와서 이벤트 생성 ⬇️ ---
         try {
             // 1. 위치 권한을 다시 한번 확인합니다.
@@ -435,20 +509,20 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
                 fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
                     Log.d(TAG, "충격 감지 시 위치 확보: ${location?.latitude}, ${location?.longitude}")
                     // 위치 정보와 함께 EventEntity를 생성하고 DB에 저장합니다.
-                    createAndSaveEvent(timestamp, location, accelData, gyroData)
+                    createAndSaveEvent(timestamp, location, accelData, gyroData, eventType, triggerValue)
                 }.addOnFailureListener {
                     Log.e(TAG, "충격 감지 시 위치 정보 요청 실패", it)
                     // 위치를 못 찾았더라도 이벤트는 기록되어야 하므로, 위치 정보 없이 생성합니다.
-                    createAndSaveEvent(timestamp, null, accelData, gyroData)
+                    createAndSaveEvent(timestamp, null, accelData, gyroData, eventType, triggerValue)
                 }
             } else {
                 Log.w(TAG, "충격 감지 시 위치 권한 없음")
                 // 권한이 없으면 위치 정보 없이 생성합니다.
-                createAndSaveEvent(timestamp, null, accelData, gyroData)
+                createAndSaveEvent(timestamp, null, accelData, gyroData, eventType, triggerValue)
             }
         } catch (e: SecurityException) {
             Log.e(TAG, "충격 감지 시 위치 권한 보안 예외", e)
-            createAndSaveEvent(timestamp, null, accelData, gyroData)
+            createAndSaveEvent(timestamp, null, accelData, gyroData, eventType, triggerValue)
         }
         // --- ⬆️ 수정 끝 ⬆️ ---
     }
@@ -458,13 +532,28 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         timestamp: Long,
         location: Location?,
         accelData: FloatArray,
-        gyroData: FloatArray?
+        gyroData: FloatArray?,
+        eventType: String,
+        triggerValue: Float
     ) {
         Log.d(TAG, "location: ${location?.latitude}, ${location?.longitude}")
+        // 🆕 SRT에 이벤트 마커 추가
+//        val relativeTime = timestamp - currentRecordingStartTime
+//        hybridLogger?.logEventMarker(
+//            eventType = eventType,
+//            relativeTimeMs = relativeTime,
+//            triggerValue = triggerValue,
+//            details = when (eventType) {
+//                "IMPACT" -> "충격 강도: ${String.format("%.2f", triggerValue)} m/s²"
+//                "SUDDEN_BRAKE" -> "감속도: ${String.format("%.2f", triggerValue)} m/s²"
+//                "FALL" -> "회전각: ${String.format("%.1f", triggerValue)}°"
+//                else -> ""
+//            }
+//        )
         val event = EventEntity(
             timestamp = timestamp,
             recordingStartTimestamp = currentRecordingStartTime,
-            type = "event",
+            type = eventType.lowercase(),
             latitude = location?.latitude,
             longitude = location?.longitude,
             speed = currentSpeed,
@@ -494,10 +583,10 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         Log.d(TAG, "⚡ 충격 이벤트 마커 저장 로직 완료: $timestamp")
     }
 
-    private fun scheduleEventExtraction(videoFile: File) {
+    private fun scheduleEventExtraction(filePath: String) {
         val workRequest = OneTimeWorkRequestBuilder<EventExtractionWorker>()
             .setInputData(
-                workDataOf("video_path" to videoFile.absolutePath)
+                workDataOf("video_path" to filePath)
             )
             .setConstraints(
                 Constraints.Builder()
@@ -507,7 +596,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
             .build()
 
         WorkManager.getInstance(this).enqueue(workRequest)
-        Log.d(TAG, "📋 이벤트 추출 작업 예약: $videoFile.name")
+        Log.d(TAG, "📋 이벤트 추출 작업 예약: $filePath")
     }
 
     override fun onDestroy() {
@@ -516,6 +605,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         recording?.stop()
         cameraProvider?.unbindAll()
         sensorHandler.stop()
+        fusedLocationClient.removeLocationUpdates(locationCallback)
         LogToFileHelper.stopLogging()
     }
 
@@ -523,7 +613,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         private const val TAG = "RecordingService"
         private const val CHANNEL_ID = "recording_channel"
         private const val NOTIFICATION_ID = 1
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
+        private const val FILENAME_FORMAT = "yyyyMMdd_HHmmss"
 
         const val ACTION_RECORDING_STARTED = "com.example.capstone.RECORDING_STARTED"
         const val ACTION_RECORDING_STOPPED = "com.example.capstone.RECORDING_STOPPED"
