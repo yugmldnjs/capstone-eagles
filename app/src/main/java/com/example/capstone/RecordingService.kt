@@ -51,6 +51,9 @@ import com.example.capstone.ml.PotholeDetection
 import android.os.Handler
 import android.os.Looper
 import androidx.preference.PreferenceManager
+import com.example.capstone.ml.IOUTracker
+import com.example.capstone.ml.BoundingBox
+import com.example.capstone.ml.Track
 
 class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener {
 
@@ -65,15 +68,33 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         const val ACTION_RECORDING_SAVED = "com.example.capstone.RECORDING_SAVED"
 
         // ★ TFLite 추론 간 최소 간격 (ms) – 필요시 조절
-        private const val MIN_INFERENCE_INTERVAL_MS = 200L
+        private const val MIN_INFERENCE_INTERVAL_MS = 0L
     }
 
     // 메인 스레드로 결과를 보내기 위한 핸들러
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // 포트홀 감지 결과를 받을 리스너 (액티비티에서 등록)
-    private var potholeListener: ((List<PotholeDetection>) -> Unit)? = null
+    // 2번째 인자: 이번 프레임에서 "새 포트홀 확정 이벤트"가 있었는지 여부
+    private var potholeListener: ((List<Track>, Boolean) -> Unit)? = null
+
+    // IOU 기반 추적기 + 트랙 상태 관리
+    private var iouTracker: IOUTracker? = null
+
+    private data class PotholeTrackState(
+        var firstFrame: Int,
+        var lastFrame: Int,
+        var maxScore: Float,
+        var lastCy: Float,
+        var mapped: Boolean = false
+    )
+
+    private val trackStates = mutableMapOf<Int, PotholeTrackState>()
+    private var prevTrackIds: Set<Int> = emptySet()
+    private var frameIndex: Int = 0
+
     private val lifecycleRegistry = LifecycleRegistry(this)
+
 
     override val lifecycle: Lifecycle
         get() = lifecycleRegistry
@@ -110,7 +131,82 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         return prefs.getBoolean("use_pothole_model", true)
     }
 
-    fun setPotholeListener(listener: ((List<PotholeDetection>) -> Unit)?) {
+    private fun resetTrackerState() {
+        iouTracker?.reset()
+        trackStates.clear()
+        prevTrackIds = emptySet()
+        frameIndex = 0
+    }
+
+    /**
+     * IOUTracker 에 현재 프레임 detection 을 전달하고,
+     * 이번 프레임에서 "새 포트홀 확정" 이벤트가 있었는지 여부를 반환.
+     */
+    private fun updateTrackerAndCheckNewPothole(
+        detections: List<PotholeDetection>
+    ): Pair<List<Track>, Boolean> {
+        val tracker = iouTracker ?: return emptyList<Track>() to false
+        frameIndex++
+
+        // PotholeDetection -> BoundingBox 변환
+        val boxes = detections.map {
+            BoundingBox(
+                cx = it.cx,
+                cy = it.cy,
+                w = it.w,
+                h = it.h,
+                cls = 0,
+                cnf = it.score,
+                clsName = "pothole"
+            )
+        }
+
+        val tracks = tracker.update(boxes)
+        val currentIds = tracks.map { it.id }.toSet()
+        val removedIds = prevTrackIds - currentIds
+
+        // 살아있는 트랙 상태 업데이트
+        for (t in tracks) {
+            val state = trackStates.getOrPut(t.id) {
+                PotholeTrackState(
+                    firstFrame = frameIndex,
+                    lastFrame = frameIndex,
+                    maxScore = t.score,
+                    lastCy = t.bbox[1]
+                )
+            }
+            state.lastFrame = frameIndex
+            if (t.score > state.maxScore) {
+                state.maxScore = t.score
+            }
+            state.lastCy = t.bbox[1]
+        }
+
+        var hasNewPotholeEvent = false
+
+        // 프레임 밖으로 완전히 사라진 트랙 처리
+        for (id in removedIds) {
+            val state = trackStates[id] ?: continue
+            val lifetime = state.lastFrame - state.firstFrame + 1
+
+            if (!state.mapped &&
+                lifetime >= 1 &&
+                state.maxScore >= 0.6f &&
+                state.lastCy >= 0.5f
+            ) {
+                hasNewPotholeEvent = true
+                state.mapped = true
+            }
+
+            trackStates.remove(id)
+        }
+
+        prevTrackIds = currentIds
+
+        return tracks to hasNewPotholeEvent
+    }
+
+    fun setPotholeListener(listener: ((List<Track>, Boolean) -> Unit)?) {
         potholeListener = listener
     }
 
@@ -140,11 +236,21 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
         lifecycleRegistry.currentState = Lifecycle.State.RESUMED
 
-        // ★ 포트홀 감지 모델 초기화 (설정 기반)
+        // ★ 포트홀 감지 모델 / 추적기 초기화 (설정 기반)
         if (isPotholeModelEnabled()) {
             potholeDetector = PotholeDetector(this)
+            // 추적을 좀 더 느슨하게
+            iouTracker = IOUTracker(
+                maxLost = 5,          // 잠깐 안 보였다가 다시 보여도 같은 트랙으로 이어주기
+                iouThreshold = 0.25f,
+                minDetectionConfidence = 0.3f,
+                maxDetectionConfidence = 0.9f
+            )
+            resetTrackerState()
         } else {
             potholeDetector = null
+            iouTracker = null
+            resetTrackerState()
             Log.d(TAG, "포트홀 모델 비활성화 상태 – 감지 로직 사용 안 함")
         }
     }
@@ -257,10 +363,12 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
                         try {
                             val detections = detector.detect(image)
 
-                            // ✅ 1) 리스너로 직접 전달 (UI 업데이트용)
+                            val (tracks, hasNewPotholeEvent) = updateTrackerAndCheckNewPothole(detections)
+
+                            // ✅ 1) 리스너로 전달 (UI 업데이트 + 맵 핀 이벤트)
                             potholeListener?.let { listener ->
                                 mainHandler.post {
-                                    listener(detections)
+                                    listener(tracks, hasNewPotholeEvent)
                                 }
                             }
 

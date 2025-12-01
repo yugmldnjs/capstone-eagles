@@ -67,22 +67,15 @@ class MainActivity2 : AppCompatActivity() {
                     recordingService?.setPreviewViews(binding.viewFinder, binding.miniCamera)
 
                     // ✅ 포트홀 감지 결과 콜백 등록
-                    recordingService?.setPotholeListener { detections ->
+                    recordingService?.setPotholeListener { tracks, hasNewPotholeEvent ->
                         runOnUiThread {
-                            // 1) 카메라 위 박스 오버레이 업데이트 (기존 동작 유지)
-                            binding.potholeOverlay.updateDetections(detections)
+                            // 1) 트랙 기반 박스 + ID 표시
+                            binding.potholeOverlay.updateTracks(tracks)
 
-                            // 2) 지도용 포트홀 이벤트 트리거
-                            //    - 가장 높은 score 하나만 보고
-                            //    - score, 위치(cy) 기준으로 한 번 더 필터
-                            val best = detections.maxByOrNull { it.score }
-
-                            if (best != null &&
-                                best.score >= 0.6f &&   // 필요하면 0.5 ~ 0.7 사이로 조절
-                                best.cy > 0.5f          // 화면 아래쪽(내 자전거 앞)만 인정
-                            ) {
-                                // 현재 GPS 위치 기준으로 포트홀 추가
-                                mapFragment.addPotholeFromCurrentLocationFromModel()
+                            // 2) 포트홀 확정 시 지도에 핀 추가
+                            if (hasNewPotholeEvent) {
+                                val added = mapFragment.addPotholeFromCurrentLocationFromModel()
+                                // TODO: added == true 인 경우에만 TTS/띵 소리 재생
                             }
                         }
                     }

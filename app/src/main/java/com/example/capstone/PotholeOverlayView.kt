@@ -7,7 +7,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.util.Log
 import android.view.View
-import com.example.capstone.ml.PotholeDetection
+import com.example.capstone.ml.Track
 
 class PotholeOverlayView @JvmOverloads constructor(
     context: Context,
@@ -33,36 +33,39 @@ class PotholeOverlayView @JvmOverloads constructor(
         textSize = 36f
     }
 
-    private var detections: List<PotholeDetection> = emptyList()
+    private var tracks: List<Track> = emptyList()
 
-    fun updateDetections(newDetections: List<PotholeDetection>) {
-        detections = newDetections
+    fun updateTracks(newTracks: List<Track>) {
+        tracks = newTracks
         invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        if (detections.isEmpty()) return
+        if (tracks.isEmpty()) return
 
         val w = width.toFloat()
         val h = height.toFloat()
 
-        for (det in detections) {
-            val cx = det.cx.coerceIn(0f, 1f)
-            val cy = det.cy.coerceIn(0f, 1f)
-            val bw = det.w.coerceIn(0.01f, 1f)
-            val bh = det.h.coerceIn(0.01f, 1f)
+        for (t in tracks) {
+            // bbox = [cx, cy, w, h] (0~1 정규화) 라고 가정
+            val cx = t.bbox[0].coerceIn(0f, 1f)
+            val cy = t.bbox[1].coerceIn(0f, 1f)
+            val bw = t.bbox[2].coerceIn(0.01f, 1f)
+            val bh = t.bbox[3].coerceIn(0.01f, 1f)
 
             val left = (cx - bw / 2f) * w
             val top = (cy - bh / 2f) * h
             val right = (cx + bw / 2f) * w
             val bottom = (cy + bh / 2f) * h
 
+            // 박스
             canvas.drawRect(RectF(left, top, right, bottom), boxPaint)
 
-            val scoreText = String.format("%.2f", det.score)
-            canvas.drawText(scoreText, left, top - 8f, textPaint)
+            // 텍스트: ID + score
+            val label = "ID=${t.id} (%.2f)".format(t.score)
+            canvas.drawText(label, left, top - 8f, textPaint)
         }
     }
 }
