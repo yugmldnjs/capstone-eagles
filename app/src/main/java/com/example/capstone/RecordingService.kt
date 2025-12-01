@@ -397,6 +397,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
                     if (location != null) {
                         // 센서 데이터 기록
                         hybridLogger?.logSensorData(
+                            context = this@RecordingService,
                             location = location,
                             speed = currentSpeed,
 //                            accelerometer = currentAccelerometer.clone(),

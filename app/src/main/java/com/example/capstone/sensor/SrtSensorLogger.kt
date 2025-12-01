@@ -1,7 +1,9 @@
 package com.example.capstone.sensor
 
+import android.content.Context
 import android.location.Location
 import android.util.Log
+import com.example.capstone.util.LocationUtils
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -24,6 +26,7 @@ class SrtSensorLogger(private val videoStartTime: Long) {
      */
     @Synchronized
     fun logSensorData(
+        context: Context,
         location: Location,
         speed: Float, // km/h
     ) {
@@ -45,12 +48,14 @@ class SrtSensorLogger(private val videoStartTime: Long) {
         val startTimeFormatted = formatSrtTime(startTimeMs)
         val endTimeFormatted = formatSrtTime(endTimeMs)
         val currentTimestamp = timestampFormatter.format(java.util.Date(currentTime))
+        val address = LocationUtils.getAddressFromLocation( context, location.latitude, location.longitude)
 
         srtBuilder.append("$sequenceNumber\n")
         srtBuilder.append("$startTimeFormatted --> $endTimeFormatted\n")
         srtBuilder.append("$currentTimestamp    ")
         srtBuilder.append("${String.format("%.1f", speed)} km/h\n")
-        srtBuilder.append("${formatCoordinate(location.latitude)}, ${formatCoordinate(location.longitude)}\n")
+        srtBuilder.append("$address\n")
+//        srtBuilder.append("${formatCoordinate(location.latitude)}, ${formatCoordinate(location.longitude)}\n")
         srtBuilder.append("\n")
 
         Log.d(TAG, "✅ SRT 엔트리 추가: #$sequenceNumber at ${relativeTimeMs}ms")
@@ -68,13 +73,6 @@ class SrtSensorLogger(private val videoStartTime: Long) {
         val seconds = (ms % 60000) / 1000
         val millis = ms % 1000
         return String.format("%02d:%02d:%02d,%03d", hours, minutes, seconds, millis)
-    }
-
-    /**
-     * 좌표를 6자리 소수점으로 포맷
-     */
-    private fun formatCoordinate(coord: Double): String {
-        return String.format("%.6f", coord)
     }
 
     /**
