@@ -33,25 +33,10 @@ class HybridSensorLogger(
     fun logSensorData(
         location: Location,
         speed: Float, // km/h
-        accelerometer: FloatArray,
-        gyroscope: FloatArray
-    ) {
-        srtLogger.logSensorData(location, speed, accelerometer, gyroscope)
-    }
 
-    /**
-     * 이벤트 마커 추가 (SRT용)
-     * 실제 이벤트 데이터는 DB에 이미 저장되어 있음
-     */
-//    fun logEventMarker(
-//        eventType: String,
-//        relativeTimeMs: Long,
-//        triggerValue: Float,
-//        details: String = ""
-//    ) {
-//        srtLogger.logEvent(eventType, relativeTimeMs, triggerValue, details)
-//        Log.d(TAG, "📍 이벤트 마커 추가: $eventType at ${relativeTimeMs}ms")
-//    }
+    ) {
+        srtLogger.logSensorData(location, speed)
+    }
 
     /**
      * 녹화 종료 시: SRT 저장 + DB에서 이벤트 읽어서 JSON 생성

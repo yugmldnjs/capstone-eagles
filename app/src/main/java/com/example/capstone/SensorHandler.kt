@@ -53,10 +53,6 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
     // ✅ 마지막 이벤트 감지 시간
     private var lastImpactTime = 0L
     private var lastBrakeTime = 0L
-    private var sensorDataCallback: ((FloatArray, FloatArray) -> Unit)? = null
-    // 원본 센서 값
-    private var currentRawAccel = FloatArray(3)
-    private var currentRawGyro = FloatArray(3)
 
     init {
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -68,14 +64,6 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
         if (gyroscope == null) {
             Log.e(TAG, "⚠️ 자이로스코프를 사용할 수 없습니다")
         }
-    }
-
-    /**
-     * RecordingService가 센서 데이터 콜백을 등록
-     */
-    fun setOnSensorDataListener(callback: (FloatArray, FloatArray) -> Unit) {
-        this.sensorDataCallback = callback
-        Log.d(TAG, "✅ 센서 데이터 콜백 등록됨")
     }
 
     /**
@@ -120,8 +108,6 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
      * ✅ 가속도계 데이터 처리 (노이즈 필터링 + 급정거/충격 감지)
      */
     private fun processAccelerometer(event: SensorEvent) {
-        currentRawAccel = floatArrayOf(event.values[0], event.values[1], event.values[2])
-        sensorDataCallback?.invoke(currentRawAccel.clone(), currentRawGyro.clone())
 
         // 1️⃣ Low-pass filter로 중력 성분 분리
         gravity[0] = GRAVITY_ALPHA * gravity[0] + (1 - GRAVITY_ALPHA) * event.values[0]
@@ -246,8 +232,6 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
      * 자이로스코프 데이터 처리
      */
     private fun processGyroscope(event: SensorEvent) {
-        currentRawGyro = floatArrayOf(event.values[0], event.values[1], event.values[2])
-        sensorDataCallback?.invoke(currentRawAccel.clone(), currentRawGyro.clone())
 
         val rotationX = Math.toDegrees(event.values[0].toDouble()).toFloat()
         val rotationY = Math.toDegrees(event.values[1].toDouble()).toFloat()
@@ -286,9 +270,9 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
     /**
      * 리스너 업데이트
      */
-//    fun setListener(listener: ImpactListener) {
-//        this.listener = listener
-//    }
+    fun setListener(listener: ImpactListener) {
+        this.listener = listener
+    }
 
     /**
      * ✅ 이벤트 리스너 인터페이스
