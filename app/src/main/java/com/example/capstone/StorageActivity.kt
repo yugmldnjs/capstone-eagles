@@ -112,6 +112,7 @@ class StorageActivity : AppCompatActivity() {
     }
 
     // 파일을 기반으로 VideoItem 객체를 생성하는 헬퍼 함수
+
     private suspend fun createVideoItemFromFile(file: File): VideoItem? {
         try {
             val retriever = MediaMetadataRetriever()
@@ -299,9 +300,11 @@ class StorageActivity : AppCompatActivity() {
         }
 
         try {
+            val dateString = File(videoItem.videoPath).nameWithoutExtension.takeLast(23)
+            val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(dateString)
             // 2. 갤러리에 저장할 정보 설정 (이름, 타입, 경로 등)
             val values = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, "Biki_${System.currentTimeMillis()}.mp4")
+                put(MediaStore.Video.Media.DISPLAY_NAME, "Biki_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(date)}.mp4")
                 put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
                 // 갤러리 내 'Movies/BikiVideos' 폴더에 저장
