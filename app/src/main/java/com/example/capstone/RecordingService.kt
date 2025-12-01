@@ -192,7 +192,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
             if (!state.mapped &&
                 lifetime >= 1 &&
                 state.maxScore >= 0.6f &&
-                state.lastCy >= 0.5f
+                state.lastCy >= 0.4f
             ) {
                 hasNewPotholeEvent = true
                 state.mapped = true
@@ -241,10 +241,10 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
             potholeDetector = PotholeDetector(this)
             // 추적을 좀 더 느슨하게
             iouTracker = IOUTracker(
-                maxLost = 5,          // 잠깐 안 보였다가 다시 보여도 같은 트랙으로 이어주기
-                iouThreshold = 0.25f,
+                maxLost = 8,          // 감지가 몇 프레임 끊겨도 트랙 유지
+                iouThreshold = 0.2f,  // IoU 기준도 살짝 완화
                 minDetectionConfidence = 0.3f,
-                maxDetectionConfidence = 0.9f
+                maxDetectionConfidence = 0.9f // 지금은 안 쓰지만 자리 유지
             )
             resetTrackerState()
         } else {

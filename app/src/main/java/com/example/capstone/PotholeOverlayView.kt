@@ -23,13 +23,13 @@ class PotholeOverlayView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = 5f
         isAntiAlias = true
-        color = 0xFFFF9800.toInt() // 주황색
+        color = 0xFFFFFFFF.toInt() // 흰색
     }
 
     private val textPaint = Paint().apply {
         style = Paint.Style.FILL
         isAntiAlias = true
-        color = 0xFFFF9800.toInt()
+        color = 0xFFFFFFFF.toInt()
         textSize = 36f
     }
 
