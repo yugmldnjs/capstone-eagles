@@ -287,7 +287,7 @@ class StorageActivity : AppCompatActivity() {
     private fun saveToGallery(videoItem: VideoItem) {
         val sourceFile = File(videoItem.videoPath)
 
-        // 1. 원본 파일이 있는지 확인
+        // 원본 파일이 있는지 확인
         if (!sourceFile.exists()) {
             Toast.makeText(this, "저장 실패: 원본 파일이 없습니다.", Toast.LENGTH_SHORT).show()
             return
@@ -302,33 +302,64 @@ class StorageActivity : AppCompatActivity() {
         try {
             val dateString = File(videoItem.videoPath).nameWithoutExtension.takeLast(23)
             val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(dateString)
-            // 2. 갤러리에 저장할 정보 설정 (이름, 타입, 경로 등)
-            val values = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, "Biki_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(date)}.mp4")
+            val formattedDateName = "Biki_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(date)}"
+
+            val resolver = contentResolver
+            //  영상 파일(.mp4) 저장 값
+            val videoValues = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, "$formattedDateName.mp4") // 이름 설정
                 put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
                 // 갤러리 내 'Movies/BikiVideos' 폴더에 저장
                 put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/" + folderName)
             }
 
-            val resolver = contentResolver
-            val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-            val itemUri = resolver.insert(collection, values)
 
-            if (itemUri != null) {
-                // 3. 데이터 복사 (원본 -> 갤러리)
-                resolver.openOutputStream(itemUri).use { outputStream ->
+            val videoCollection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val videoItemUri = resolver.insert(videoCollection, videoValues)
+
+            if (videoItemUri != null) {
+                //  데이터 복사 (원본 -> 갤러리)
+                resolver.openOutputStream(videoItemUri).use { outputStream ->
                     FileInputStream(sourceFile).use { inputStream ->
                         inputStream.copyTo(outputStream!!)
                     }
                 }
 
-                // 4. 저장 완료 상태로 변경
-                values.clear()
-                values.put(MediaStore.Video.Media.IS_PENDING, 0)
-                resolver.update(itemUri, values, null, null)
+                // 저장 완료 상태로 변경
+                videoValues.clear()
+                videoValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+                resolver.update(videoItemUri, videoValues, null, null)
 
 
+                // srt 파일 저장
+                // 원본 영상 경로에서 확장자만 .srt로 변경하여 자막 파일 찾기
+                val srtSourceFile = File(videoItem.videoPath.replace(".mp4", ".srt", ignoreCase = true))
+
+                if (srtSourceFile.exists()) {
+                    val srtValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, "$formattedDateName.srt")
+                        put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/" + folderName)
+                    }
+
+
+                    val srtCollection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    val srtItemUri = resolver.insert(srtCollection, srtValues)
+
+                    if (srtItemUri != null) {
+                        resolver.openOutputStream(srtItemUri).use { outputStream ->
+                            FileInputStream(srtSourceFile).use { inputStream ->
+                                inputStream.copyTo(outputStream!!)
+                            }
+                        }
+                        // 자막 저장 완료 처리
+                        srtValues.clear()
+                        srtValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        resolver.update(srtItemUri, srtValues, null, null)
+                    }
+                }
                 Toast.makeText(this, "갤러리에 영상이 저장되었습니다", Toast.LENGTH_LONG).show()
             }
         } catch (e: Exception) {
