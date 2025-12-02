@@ -2,12 +2,17 @@ package com.example.capstone
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.util.Log
 import android.view.View
-import com.example.capstone.ml.PotholeDetection
+import androidx.core.content.ContextCompat
+import com.example.capstone.ml.BoundingBox
+//import com.example.capstone.ml.PotholeDetection
+import kotlin.times
 
 class PotholeOverlayView @JvmOverloads constructor(
     context: Context,
@@ -15,57 +20,78 @@ class PotholeOverlayView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    companion object {
-        private const val TAG = "PotholeOverlayView"
+    private var results = listOf<BoundingBox>()
+    private var boxPaint = Paint()
+    private var textBackgroundPaint = Paint()
+    private var textPaint = Paint()
+
+    private var bounds = Rect()
+
+    init {
+        initPaints()
     }
 
-    private val boxPaint = Paint().apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 5f
-        isAntiAlias = true
-        color = 0xFFFF9800.toInt() // 주황색
+    fun clear() {
+        results = listOf()
+        textPaint.reset()
+        textBackgroundPaint.reset()
+        boxPaint.reset()
+        invalidate()
+        initPaints()
     }
 
-    private val textPaint = Paint().apply {
-        style = Paint.Style.FILL
-        isAntiAlias = true
-        color = 0xFFFF9800.toInt()
-        textSize = 36f
+    private fun initPaints() {
+        textBackgroundPaint.color = Color.BLACK
+        textBackgroundPaint.style = Paint.Style.FILL
+        textBackgroundPaint.textSize = 50f
+
+        textPaint.color = Color.WHITE
+        textPaint.style = Paint.Style.FILL
+        textPaint.textSize = 50f
+
+        boxPaint.color = ContextCompat.getColor(context!!, R.color.bounding_box_color)
+        boxPaint.strokeWidth = 8F
+        boxPaint.style = Paint.Style.STROKE
     }
 
-    private var detections: List<PotholeDetection> = emptyList()
+    override fun draw(canvas: Canvas) {
+        super.draw(canvas)
 
-    fun updateDetections(newDetections: List<PotholeDetection>) {
-        Log.d(TAG, "updateDetections: size=${newDetections.size}")
-        detections = newDetections
+        results.forEach {
+            val left = it.x1 * width
+            val top = it.y1 * height
+            val right = it.x2 * width
+            val bottom = it.y2 * height
+
+            canvas.drawRect(left, top, right, bottom, boxPaint)
+            val drawableText = String.format("%s %.0f%%", it.clsName, it.cnf * 100f)
+
+            textBackgroundPaint.getTextBounds(drawableText, 0, drawableText.length, bounds)
+            val textWidth = bounds.width()
+            val textHeight = bounds.height()
+            canvas.drawRect(
+                left,
+                top,
+                left + textWidth + BOUNDING_RECT_TEXT_PADDING,
+                top + textHeight + BOUNDING_RECT_TEXT_PADDING,
+                textBackgroundPaint
+            )
+            canvas.drawText(drawableText, left, top + bounds.height(), textPaint)
+
+        }
+    }
+
+    fun setResults(boundingBoxes: List<BoundingBox>) {
+        results = boundingBoxes
         invalidate()
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
+//    fun setTrackedResults(tracks: List<Track>?) {
+//        trackedResults = tracks ?: listOf()
+//        invalidate()
+//    }
 
-        Log.d(TAG, "onDraw: size=${width}x$height, detections=${detections.size}")
-
-        if (detections.isEmpty()) return
-
-        val w = width.toFloat()
-        val h = height.toFloat()
-
-        for (det in detections) {
-            val cx = det.cx.coerceIn(0f, 1f)
-            val cy = det.cy.coerceIn(0f, 1f)
-            val bw = det.w.coerceIn(0.01f, 1f)
-            val bh = det.h.coerceIn(0.01f, 1f)
-
-            val left = (cx - bw / 2f) * w
-            val top = (cy - bh / 2f) * h
-            val right = (cx + bw / 2f) * w
-            val bottom = (cy + bh / 2f) * h
-
-            canvas.drawRect(RectF(left, top, right, bottom), boxPaint)
-
-            val scoreText = String.format("%.2f", det.score)
-            canvas.drawText(scoreText, left, top - 8f, textPaint)
-        }
+    companion object {
+        private const val BOUNDING_RECT_TEXT_PADDING = 8
     }
 }

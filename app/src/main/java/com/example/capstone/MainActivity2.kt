@@ -23,11 +23,20 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.OnBackPressedCallback
-import com.example.capstone.ml.PotholeDetection
+import com.example.capstone.ml.BoundingBox
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.SystemClock
+import androidx.camera.core.Camera
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+//import com.example.capstone.ml.PotholeDetection
+import com.example.capstone.ml.PotholeDetector
+import java.util.concurrent.ExecutorService
+import kotlin.collections.maxByOrNull
 
 
 class MainActivity2 : AppCompatActivity() {
@@ -51,6 +60,19 @@ class MainActivity2 : AppCompatActivity() {
     private var originalBrightness: Float = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     private var isPowerSavingActive = false
 
+    // ai
+    private val isFrontCamera = false
+
+    private var preview: Preview? = null
+    private var imageAnalyzer: ImageAnalysis? = null
+    private var camera: Camera? = null
+    private var cameraProvider: ProcessCameraProvider? = null
+    private var detector: PotholeDetector? = null
+
+    private var frameCount = 0
+    private var fpsStartTime = SystemClock.elapsedRealtime()
+    private lateinit var cameraExecutor: ExecutorService
+
     private val potholeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             Log.d("PotholeReceiver", "onReceive: intent=$intent, action=${intent?.action}")
@@ -62,21 +84,21 @@ class MainActivity2 : AppCompatActivity() {
             }
 
             // ★ API 33(Tiramisu)+ 에서는 클래스까지 넘겨주는 버전을 써야 안전함
-            val detections: ArrayList<PotholeDetection> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val boxes: ArrayList<BoundingBox> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableArrayListExtra(
                     "detections",
-                    PotholeDetection::class.java
+                    BoundingBox::class.java
                 )
             } else {
                 @Suppress("DEPRECATION")
-                intent.getParcelableArrayListExtra<PotholeDetection>("detections")
+                intent.getParcelableArrayListExtra<BoundingBox>("detections")
             } ?: arrayListOf()
 
-            Log.d("PotholeReceiver", "received detections size=${detections.size}")
+            Log.d("PotholeReceiver", "received detections size=${boxes.size}")
 
             // 오버레이에 전달 (UI 스레드에서)
             runOnUiThread {
-                binding.potholeOverlay.updateDetections(detections)
+                binding.potholeOverlay.setResults(boxes)
             }
         }
     }
@@ -98,18 +120,18 @@ class MainActivity2 : AppCompatActivity() {
                     recordingService?.setPreviewViews(binding.viewFinder, binding.miniCamera)
 
                     // ✅ 포트홀 감지 결과 콜백 등록
-                    recordingService?.setPotholeListener { detections ->
+                    recordingService?.setPotholeListener { boxes: List<BoundingBox> ->
                         runOnUiThread {
                             // 1) 카메라 위 박스 오버레이 업데이트 (기존 동작 유지)
-                            binding.potholeOverlay.updateDetections(detections)
+                            binding.potholeOverlay.setResults(boxes)
 
                             // 2) 지도용 포트홀 이벤트 트리거
                             //    - 가장 높은 score 하나만 보고
                             //    - score, 위치(cy) 기준으로 한 번 더 필터
-                            val best = detections.maxByOrNull { it.score }
+                            val best = boxes.maxByOrNull { it.cnf }
 
                             if (best != null &&
-                                best.score >= 0.6f &&   // 필요하면 0.5 ~ 0.7 사이로 조절
+                                best.cnf >= 0.6f &&   // 필요하면 0.5 ~ 0.7 사이로 조절
                                 best.cy > 0.5f          // 화면 아래쪽(내 자전거 앞)만 인정
                             ) {
                                 // 현재 GPS 위치 기준으로 포트홀 추가

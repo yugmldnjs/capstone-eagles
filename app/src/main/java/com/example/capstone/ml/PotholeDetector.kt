@@ -1,9 +1,23 @@
 package com.example.capstone.ml
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
-import androidx.camera.core.ImageProxy
+import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.CompatibilityList
+import org.tensorflow.lite.gpu.GpuDelegate
+import org.tensorflow.lite.support.common.FileUtil
+import org.tensorflow.lite.support.common.ops.CastOp
+import org.tensorflow.lite.support.common.ops.NormalizeOp
+import org.tensorflow.lite.support.image.ImageProcessor
+import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
+import java.io.BufferedReader
+import java.io.IOException
+import java.io.InputStream
+import java.io.InputStreamReader
+import androidx.camera.core.ImageProxy
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
@@ -17,44 +31,16 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteOrder
 import android.os.Parcel
 import android.os.Parcelable
+import com.example.capstone.ml.PotholeDetector.Companion.INPUT_IMAGE_TYPE
+import com.example.capstone.ml.PotholeDetector.Companion.INPUT_MEAN
+import com.example.capstone.ml.PotholeDetector.Companion.INPUT_STANDARD_DEVIATION
+import com.google.android.material.color.utilities.Score.score
+import kotlin.collections.sortedByDescending
 
 /**
  * 포트홀 감지 결과 하나를 표현하는 데이터 클래스
  */
-data class PotholeDetection(
-    val score: Float,
-    val cx: Float,   // 0~1 정규화된 중심 x
-    val cy: Float,   // 0~1 정규화된 중심 y
-    val w: Float,    // 0~1 정규화된 폭
-    val h: Float     // 0~1 정규화된 높이
-) : Parcelable {
 
-    constructor(parcel: Parcel) : this(
-        score = parcel.readFloat(),
-        cx = parcel.readFloat(),
-        cy = parcel.readFloat(),
-        w = parcel.readFloat(),
-        h = parcel.readFloat()
-    )
-
-    override fun writeToParcel(parcel: Parcel, flags: Int) {
-        parcel.writeFloat(score)
-        parcel.writeFloat(cx)
-        parcel.writeFloat(cy)
-        parcel.writeFloat(w)
-        parcel.writeFloat(h)
-    }
-
-    override fun describeContents(): Int = 0
-
-    companion object CREATOR : Parcelable.Creator<PotholeDetection> {
-        override fun createFromParcel(parcel: Parcel): PotholeDetection =
-            PotholeDetection(parcel)
-
-        override fun newArray(size: Int): Array<PotholeDetection?> =
-            arrayOfNulls(size)
-    }
-}
 
 /**
  * TFLite 포트홀 감지 모델 래퍼
@@ -62,232 +48,241 @@ data class PotholeDetection(
  * - 다음 단계: ImageProxy → 입력 텐서 변환 + 출력 파싱 구현
  */
 class PotholeDetector(
-    private val context: Context
+    private val context: Context,
+    private val modelPath: String,
+    private val labelPath: String,
+    private val detectorListener: DetectorListener,
 ) {
 
-    companion object {
-        private const val TAG = "PotholeDetector"
+//    companion object {
+//        private const val TAG = "PotholeDetector"
+//        private const val MODEL_FILE = "exp36_best_float16.tflite"
+//        private const val LABEL_FILE = "labels.txt"
+//    }
 
-        // assets 안의 파일명 (필요하면 이름 맞게 수정)
-        private const val MODEL_FILE = "exp36_best_float16.tflite"
-        private const val LABEL_FILE = "labels.txt"
-    }
+    private var interpreter: Interpreter
+    private var labels = mutableListOf<String>()
 
-    private val interpreter: Interpreter
-    private val labels: List<String>
+    private var tensorWidth = 0
+    private var tensorHeight = 0
+    private var numChannel = 0
+    private var numElements = 0
 
-    // ★ 모델 입력 사이즈 (로그에서 shape=[1, 320, 320, 3])
-    private val inputWidth = 320
-    private val inputHeight = 320
-    private val inputChannels = 3
-
-    // ★ 재사용할 입력 버퍼 (float32)
-    private val imgData: ByteBuffer = ByteBuffer.allocateDirect(
-        4 * inputWidth * inputHeight * inputChannels
-    ).apply {
-        order(ByteOrder.nativeOrder())
-    }
+    private val imageProcessor = ImageProcessor.Builder()
+        .add(NormalizeOp(INPUT_MEAN, INPUT_STANDARD_DEVIATION))
+        .add(CastOp(INPUT_IMAGE_TYPE))
+        .build()
 
     init {
-        // 1) 모델 로드
-        val modelBuffer = loadModelFile(context, MODEL_FILE)
-        val options = Interpreter.Options().apply {
-            // 필요 시 스레드 조정
-            setNumThreads(4)
-            // GPU delegate는 나중에 안정화되면 붙이는 걸 추천
+        val compatList = CompatibilityList()
+
+        //gpu
+        val options = Interpreter.Options().apply{
+            if(compatList.isDelegateSupportedOnThisDevice){
+                val delegateOptions = compatList.bestOptionsForThisDevice
+                this.addDelegate(GpuDelegate(delegateOptions))
+                Log.i("Detector-Gpu", "GPU Delegate O")
+            } else {
+                Log.i("Detector-Gpu", "GPU Delegate X -> CPU fallback")
+                this.setUseXNNPACK(true)
+                this.setNumThreads(4)
+            }
         }
-        interpreter = Interpreter(modelBuffer, options)
-        Log.d(TAG, "TFLite interpreter created")
+        val model = FileUtil.loadMappedFile(context, modelPath)
+        interpreter = Interpreter(model, options)
 
-        // 2) 라벨 로드
-        labels = loadLabels(context, LABEL_FILE)
-        Log.d(TAG, "labels loaded: $labels")
+        val inputShape = interpreter.getInputTensor(0)?.shape()
+        val outputShape = interpreter.getOutputTensor(0)?.shape()
 
-        // 3) 디버깅용: 입력/출력 텐서 정보 찍기
-        logModelInfo()
-    }
+        if (inputShape != null) {
+            tensorWidth = inputShape[1]
+            tensorHeight = inputShape[2]
 
-    /**
-     * assets 에서 .tflite 파일을 mmap 으로 로드
-     */
-    private fun loadModelFile(context: Context, fileName: String): ByteBuffer {
-        val assetFileDescriptor = context.assets.openFd(fileName)
-        FileInputStream(assetFileDescriptor.fileDescriptor).use { input ->
-            val fileChannel: FileChannel = input.channel
-            val startOffset = assetFileDescriptor.startOffset
-            val declaredLength = assetFileDescriptor.declaredLength
-            return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+            // If in case input shape is in format of [1, 3, ..., ...]
+            if (inputShape[1] == 3) {
+                tensorWidth = inputShape[2]
+                tensorHeight = inputShape[3]
+            }
         }
-    }
 
-    /**
-     * labels.txt 로드
-     * - 한 줄 = 한 클래스 (지금은 "pothole" 한 줄만 있음)
-     */
-    private fun loadLabels(context: Context, fileName: String): List<String> {
-        return context.assets.open(fileName).bufferedReader().useLines { lines ->
-            lines.filter { it.isNotBlank() }.map { it.trim() }.toList()
+        if (outputShape != null) {
+            numChannel = outputShape[1]
+            numElements = outputShape[2]
         }
-    }
 
-    /**
-     * 모델 입출력 shape 찍어보기 (개발/디버깅용)
-     */
-    private fun logModelInfo() {
         try {
-            val inputCount = interpreter.inputTensorCount
-            val outputCount = interpreter.outputTensorCount
-            Log.d(TAG, "Input tensor count  = $inputCount")
-            Log.d(TAG, "Output tensor count = $outputCount")
+            val inputStream: InputStream = context.assets.open(labelPath)
+            val reader = BufferedReader(InputStreamReader(inputStream))
 
-            for (i in 0 until inputCount) {
-                val tensor = interpreter.getInputTensor(i)
-                Log.d(TAG, "Input[$i] name=${tensor.name()}, shape=${tensor.shape().contentToString()}, type=${tensor.dataType()}")
+            var line: String? = reader.readLine()
+            while (line != null && line != "") {
+                labels.add(line)
+                line = reader.readLine()
             }
-            for (i in 0 until outputCount) {
-                val tensor = interpreter.getOutputTensor(i)
-                Log.d(TAG, "Output[$i] name=${tensor.name()}, shape=${tensor.shape().contentToString()}, type=${tensor.dataType()}")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to log model info", e)
+
+            reader.close()
+            inputStream.close()
+        } catch (e: IOException) {
+            e.printStackTrace()
         }
     }
 
-    /**
-     * ImageProxy(YUV_420_888)를 Bitmap으로 변환
-     * - 성능은 아주 빠르진 않지만, 구현이 간단해서 초기 테스트용으로 적당합니다.
-     */
-    private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
-        val yBuffer = image.planes[0].buffer
-        val uBuffer = image.planes[1].buffer
-        val vBuffer = image.planes[2].buffer
-
-        val ySize = yBuffer.remaining()
-        val uSize = uBuffer.remaining()
-        val vSize = vBuffer.remaining()
-
-        val nv21 = ByteArray(ySize + uSize + vSize)
-
-        // U, V 가 섞이는 순서에 주의
-        yBuffer.get(nv21, 0, ySize)
-        vBuffer.get(nv21, ySize, vSize)
-        uBuffer.get(nv21, ySize + vSize, uSize)
-
-        val yuvImage = YuvImage(
-            nv21,
-            ImageFormat.NV21,
-            image.width,
-            image.height,
-            null
-        )
-
-        val out = ByteArrayOutputStream()
-        yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 100, out)
-        val jpegBytes = out.toByteArray()
-
-        return BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
-    }
-
-    /**
-     * 회전 보정
-     */
-    private fun rotateBitmap(src: Bitmap, degrees: Int): Bitmap {
-        if (degrees == 0) return src
-        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
-        return Bitmap.createBitmap(src, 0, 0, src.width, src.height, matrix, true)
-    }
-
-    /**
-     * Bitmap을 모델 입력(ByteBuffer)에 채우기
-     * - RGB 순서, 0~1로 정규화 (학습 시 설정에 따라 -1~1 등으로 바꾸면 됨)
-     */
-    private fun convertBitmapToInputBuffer(bitmap: Bitmap) {
-        val resized = Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
-
-        imgData.rewind()
-
-        for (y in 0 until inputHeight) {
-            for (x in 0 until inputWidth) {
-                val pixel = resized.getPixel(x, y)
-                val r = ((pixel shr 16) and 0xFF) / 255.0f
-                val g = ((pixel shr 8) and 0xFF) / 255.0f
-                val b = (pixel and 0xFF) / 255.0f
-
-                imgData.putFloat(r)
-                imgData.putFloat(g)
-                imgData.putFloat(b)
-            }
-        }
-    }
-
-
-    /**
-     * ImageProxy를 그대로 받아서 포트홀 감지 수행
-     * - 결과 좌표는 0~1 정규화된 cx, cy, w, h 기준
-     */
-    fun detect(image: ImageProxy): List<PotholeDetection> {
-        // 1) YUV -> Bitmap
-        val bitmap = imageProxyToBitmap(image)
-
-        // 2) 회전 보정
-        val rotationDegrees = image.imageInfo.rotationDegrees
-        val rotatedBitmap = rotateBitmap(bitmap, rotationDegrees)
-
-        // 3) Bitmap -> 입력 버퍼
-        convertBitmapToInputBuffer(rotatedBitmap)
-
-        // 4) 출력 버퍼 준비 (shape: [1, 5, 2100])
-        val output = Array(1) { Array(5) { FloatArray(2100) } }
-
-        // 5) 추론 실행
-        interpreter.run(imgData, output)
-
-        // 6) 결과 파싱
-        val detections = mutableListOf<PotholeDetection>()
-
-        val channels = output[0]              // size = 5
-        if (channels.size < 5) {
-            Log.e(TAG, "Unexpected output channel size: ${channels.size}")
-            return emptyList()
-        }
-
-        val xs = channels[0]                  // cx
-        val ys = channels[1]                  // cy
-        val ws = channels[2]                  // w
-        val hs = channels[3]                  // h
-        val scores = channels[4]              // score
-
-        val numBoxes = scores.size            // 2100
-
-        val scoreThreshold = 0.4f             // 필요에 따라 조정
-
-        for (i in 0 until numBoxes) {
-            val score = scores[i]
-            if (score < scoreThreshold) continue
-
-            val cx = xs[i]
-            val cy = ys[i]
-            val w = ws[i]
-            val h = hs[i]
-
-            // 여기서는 일단 0~1 정규화 값이라고 가정
-            detections.add(
-                PotholeDetection(
-                    score = score,
-                    cx = cx,
-                    cy = cy,
-                    w = w,
-                    h = h
-                )
-            )
-        }
-
-        Log.d(TAG, "detect() found ${detections.size} potholes (score >= $scoreThreshold)")
-
-        return detections
-    }
+//    fun restart(isGpu: Boolean) {
+//        interpreter.close()
+//
+//        val options = if (isGpu) {
+//            val compatList = CompatibilityList()
+//            Interpreter.Options().apply{
+//                if(compatList.isDelegateSupportedOnThisDevice){
+//                    val delegateOptions = compatList.bestOptionsForThisDevice
+//                    this.addDelegate(GpuDelegate(delegateOptions))
+//                } else {
+//                    // GPU 불가 → CPU XNNPACK fallback
+//                    this.setUseXNNPACK(true)
+//                    this.setNumThreads(4)
+//                }
+//            }
+//        } else {
+//            Interpreter.Options().apply{
+//                // isGpu = false → 명시적 CPU XNNPACK 경로
+//                this.setUseXNNPACK(true)
+//                this.setNumThreads(4)
+//            }
+//        }
+//        Log.i("Detector-Gpu", "XNNPACK enabled: ${options.useXNNPACK}")
+//
+//        val model = FileUtil.loadMappedFile(context, modelPath)
+//        interpreter = Interpreter(model, options)
+//    }
 
     fun close() {
         interpreter.close()
+    }
+
+    fun detect(frame: Bitmap): List<BoundingBox>? {
+        if (tensorWidth == 0) return null
+        if (tensorHeight == 0) return null
+        if (numChannel == 0) return null
+        if (numElements == 0) return null
+
+        var inferenceTime = SystemClock.uptimeMillis()
+
+        val resizedBitmap = Bitmap.createScaledBitmap(frame, tensorWidth, tensorHeight, false)
+
+        val tensorImage = TensorImage(INPUT_IMAGE_TYPE)
+        tensorImage.load(resizedBitmap)
+        val processedImage = imageProcessor.process(tensorImage)
+        val imageBuffer = processedImage.buffer
+
+        val output = TensorBuffer.createFixedSize(intArrayOf(1, numChannel, numElements),
+            OUTPUT_IMAGE_TYPE
+        )
+        interpreter.run(imageBuffer, output.buffer)
+
+        val bestBoxes = bestBox(output.floatArray)
+        inferenceTime = SystemClock.uptimeMillis() - inferenceTime
+
+        if (bestBoxes == null) {
+            detectorListener.onEmptyDetect()
+            return null
+        }
+
+        detectorListener.onDetect(bestBoxes, inferenceTime)
+        return bestBoxes
+    }
+
+    private fun bestBox(array: FloatArray) : List<BoundingBox>? {
+
+        val boundingBoxes = mutableListOf<BoundingBox>()
+
+        for (c in 0 until numElements) {
+            var maxConf = CONFIDENCE_THRESHOLD
+            var maxIdx = -1
+            var j = 4
+            var arrayIdx = c + numElements * j
+            while (j < numChannel){
+                if (array[arrayIdx] > maxConf) {
+                    maxConf = array[arrayIdx]
+                    maxIdx = j - 4
+                }
+                j++
+                arrayIdx += numElements
+            }
+
+            if (maxConf > CONFIDENCE_THRESHOLD) {
+                val clsName = labels[maxIdx]
+                val cx = array[c] // 0
+                val cy = array[c + numElements] // 1
+                val w = array[c + numElements * 2]
+                val h = array[c + numElements * 3]
+                val x1 = cx - (w/2F)
+                val y1 = cy - (h/2F)
+                val x2 = cx + (w/2F)
+                val y2 = cy + (h/2F)
+                if (x1 < 0F || x1 > 1F) continue
+                if (y1 < 0F || y1 > 1F) continue
+                if (x2 < 0F || x2 > 1F) continue
+                if (y2 < 0F || y2 > 1F) continue
+
+                boundingBoxes.add(
+                    BoundingBox(
+                        x1 = x1, y1 = y1, x2 = x2, y2 = y2,
+                        cx = cx, cy = cy, w = w, h = h,
+                        cnf = maxConf, cls = maxIdx, clsName = clsName
+                    )
+                )
+            }
+        }
+
+        if (boundingBoxes.isEmpty()) return null
+
+        return applyNMS(boundingBoxes)
+    }
+
+    private fun applyNMS(boxes: List<BoundingBox>) : MutableList<BoundingBox> {
+        val sortedBoxes = boxes.sortedByDescending { it.cnf }.toMutableList()
+        val selectedBoxes = mutableListOf<BoundingBox>()
+
+        while(sortedBoxes.isNotEmpty()) {
+            val first = sortedBoxes.first()
+            selectedBoxes.add(first)
+            sortedBoxes.remove(first)
+
+            val iterator = sortedBoxes.iterator()
+            while (iterator.hasNext()) {
+                val nextBox = iterator.next()
+                val iou = calculateIoU(first, nextBox)
+                if (iou >= IOU_THRESHOLD) {
+                    iterator.remove()
+                }
+            }
+        }
+
+        return selectedBoxes
+    }
+
+    private fun calculateIoU(box1: BoundingBox, box2: BoundingBox): Float {
+        val x1 = maxOf(box1.x1, box2.x1)
+        val y1 = maxOf(box1.y1, box2.y1)
+        val x2 = minOf(box1.x2, box2.x2)
+        val y2 = minOf(box1.y2, box2.y2)
+        val intersectionArea = maxOf(0F, x2 - x1) * maxOf(0F, y2 - y1)
+        val box1Area = box1.w * box1.h
+        val box2Area = box2.w * box2.h
+        return intersectionArea / (box1Area + box2Area - intersectionArea)
+    }
+
+    interface DetectorListener {
+        fun onEmptyDetect()
+        fun onDetect(boundingBoxes: List<BoundingBox>, inferenceTime: Long)
+    }
+
+    companion object {
+        private const val INPUT_MEAN = 0f
+        private const val INPUT_STANDARD_DEVIATION = 255f
+        private val INPUT_IMAGE_TYPE = DataType.FLOAT32
+        private val OUTPUT_IMAGE_TYPE = DataType.FLOAT32
+        private const val CONFIDENCE_THRESHOLD = 0.3F
+        private const val IOU_THRESHOLD = 0.5F
     }
 }

@@ -9,11 +9,13 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.location.Location
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
@@ -47,12 +49,13 @@ import com.example.capstone.ml.PotholeDetector
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import androidx.camera.core.UseCase
-import com.example.capstone.ml.PotholeDetection
+import com.example.capstone.ml.BoundingBox
 import android.os.Handler
 import android.os.Looper
+import android.graphics.Matrix
 
 
-class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener {
+class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener, PotholeDetector.DetectorListener {
 
     companion object {
         private const val TAG = "RecordingService"
@@ -71,7 +74,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // 포트홀 감지 결과를 받을 리스너 (액티비티에서 등록)
-    private var potholeListener: ((List<PotholeDetection>) -> Unit)? = null
+    private var potholeListener: ((List<BoundingBox>) -> Unit)? = null
     private val lifecycleRegistry = LifecycleRegistry(this)
 
     override val lifecycle: Lifecycle
@@ -104,7 +107,11 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
     // 감지 결과 브로드캐스트 간 최소 간격 (ms)
     private var lastDetectionBroadcastTime: Long = 0L
 
-    fun setPotholeListener(listener: ((List<PotholeDetection>) -> Unit)?) {
+    // FPS 측정용 변수
+    private var frameCount = 0
+    private var fpsStartTime = SystemClock.uptimeMillis()
+
+    fun setPotholeListener(listener: ((List<BoundingBox>) -> Unit)?) {
         potholeListener = listener
     }
 
@@ -114,6 +121,19 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
 
     override fun onBind(intent: Intent): IBinder {
         return binder
+    }
+
+    override fun onEmptyDetect() {
+        // 포트홀 감지 안 됐을 때
+//        runOnUiThread {
+//            updateFps()
+//            binding.overlay.clear()
+//        }
+    }
+
+    override fun onDetect(boundingBoxes: List<BoundingBox>, inferenceTime: Long) {
+        potholeListener?.invoke(boundingBoxes)
+        broadcastPotholeDetections(boundingBoxes)
     }
 
     override fun onCreate() {
@@ -135,7 +155,12 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         lifecycleRegistry.currentState = Lifecycle.State.RESUMED
 
         // ★ 포트홀 감지 모델 초기화
-        potholeDetector = PotholeDetector(this)
+        potholeDetector = PotholeDetector(
+            this,
+            modelPath = "exp36_best_float16.tflite",
+            labelPath = "labels.txt",
+            detectorListener = this
+        )
     }
 
     fun setPreviewViews(mainPreview: PreviewView, miniPreview: PreviewView) {
@@ -229,32 +254,58 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
             imageAnalysis = ImageAnalysis.Builder()
                 // YOLO 입력 크기에 맞춤 (320x320)
                 .setTargetResolution(Size(320, 320))
+                //RGBA_8888 (Bitmap 그대로 호환 버전)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build().also { analysis ->
                     analysis.setAnalyzer(analysisExecutor) { image ->
                         try {
-                            val detections = detector.detect(image)
+                            // ★ FPS 측정
+                            frameCount++
+                            val currentTime = SystemClock.uptimeMillis()
+                            val elapsedTime = currentTime - fpsStartTime
+                            if (elapsedTime >= 1000L) { // 1초마다 로그 출력
+                                val fps = (frameCount * 1000.0 / elapsedTime).toInt()
+                                Log.d(TAG, "FPS: $fps (frames: $frameCount, elapsed: ${elapsedTime}ms)")
+                                frameCount = 0
+                                fpsStartTime = currentTime
+                            }
 
-                            // ✅ 1) 리스너로 직접 전달 (UI 업데이트용)
+                            // ★ ImageProxy → Bitmap 변환 (RGBA 그대로 받음)
+                            val bitmap = Bitmap.createBitmap(
+                                image.width,
+                                image.height,
+                                Bitmap.Config.ARGB_8888
+                            )
+                            bitmap.copyPixelsFromBuffer(image.planes[0].buffer)
+
+                            // ★ 회전 보정
+                            val rotation = image.imageInfo.rotationDegrees
+                            val matrix = Matrix().apply {
+                                postRotate(rotation.toFloat())
+                            }
+                            val rotatedBitmap = Bitmap.createBitmap(
+                                bitmap, 0, 0, bitmap.width, bitmap.height,
+                                matrix, true
+                            )
+
+                            // ★ TFLite 모델에 Bitmap 전달
+                            val boxes: List<BoundingBox> = potholeDetector?.detect(rotatedBitmap) ?: emptyList()
+
+                            // (1) 액티비티 콜백 전달
                             potholeListener?.let { listener ->
                                 mainHandler.post {
-                                    listener(detections)
+                                    listener(boxes)
                                 }
                             }
 
-                            // ✅ 2) 그대로 브로드캐스트도 유지 (나중에 필요하면 활용)
-                            broadcastPotholeDetections(detections)
+                            // (2) 브로드캐스트 전송 (기존 기능 유지)
+                            broadcastPotholeDetections(boxes)
 
-                            if (detections.isNotEmpty()) {
-                                val maxScore = detections.maxOf { it.score }
-                                Log.d(
-                                    TAG,
-                                    "Pothole detected: count=${detections.size}, topScore=$maxScore"
-                                )
-                            }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error during pothole detection", e)
                         } finally {
+                            // 반드시 닫기
                             image.close()
                         }
                     }
@@ -643,7 +694,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         Log.d(TAG, "📋 이벤트 추출 작업 예약: $uri")
     }
 
-    private fun broadcastPotholeDetections(detections: List<PotholeDetection>) {
+    private fun broadcastPotholeDetections(detections: List<BoundingBox>) {
         val now = System.currentTimeMillis()
         // 너무 자주 쏘면 부담되니 200ms 간격으로 제한
         if (now - lastDetectionBroadcastTime < 200L) return
@@ -655,7 +706,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         // Parcelable ArrayList로 넣기
         intent.putParcelableArrayListExtra(
             "detections",
-            ArrayList<PotholeDetection>(detections)
+            ArrayList<BoundingBox>(detections)
         )
 
         // ★ 여기 로그 추가

@@ -7,6 +7,9 @@ plugins {
     id("kotlin-kapt")
     alias(libs.plugins.google.gms.google.services)
     id("com.google.devtools.ksp")
+
+    // Pacelize 플러그인 추가
+    id("kotlin-parcelize")
 }
 
 android {
@@ -119,7 +122,18 @@ dependencies {
     implementation ("com.arthenica:smart-exception-java:0.2.1")
 
     // TensorFlow Lite 기본 runtime
-    implementation("org.tensorflow:tensorflow-lite:2.13.0")
+    // implementation("org.tensorflow:tensorflow-lite:2.13.0")
+
+    // TensorFlow Lite 추가
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+
+    implementation("org.tensorflow:tensorflow-lite-gpu-delegate-plugin:0.4.4")
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-api:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.16.1")
+
 }
 fun getNaverMapClientId(): String {
     val properties = Properties()
