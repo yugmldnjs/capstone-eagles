@@ -268,7 +268,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
     // 실제 녹화를 수행하는 내부 함수
     private fun startRecordingInternal(videoCapture: VideoCapture<Recorder>) {
         Log.d(TAG, "startRecordingInternal - Location included: ${currentLocation != null}")
-        val name = "Blackbox-${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
+        val name = "Bik-i_${SimpleDateFormat(FILENAME_FORMAT, Locale.KOREA)
             .format(currentRecordingStartTime)}.mp4"
 
         currentRecordingFile = File(

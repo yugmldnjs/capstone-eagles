@@ -223,13 +223,12 @@ class StorageActivity : AppCompatActivity() {
         }
 
         try {
-            val dateString = File(videoItem.videoPath).nameWithoutExtension.takeLast(15)
-            val formattedDateName = "Biki_${dateString}"
+            val fileName = File(videoItem.videoPath).name
 
             val resolver = contentResolver
             //  영상 파일(.mp4) 저장 값
             val videoValues = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, "$formattedDateName.mp4") // 이름 설정
+                put(MediaStore.Video.Media.DISPLAY_NAME, "$fileName.mp4") // 이름 설정
                 put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
                 // 갤러리 내 'Movies/BikiVideos' 폴더에 저장
@@ -260,7 +259,7 @@ class StorageActivity : AppCompatActivity() {
 
                 if (srtSourceFile.exists()) {
                     val srtValues = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, "$formattedDateName.srt")
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, "$fileName.srt")
                         put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
                         put(MediaStore.MediaColumns.MIME_TYPE, "application/x-subrip")
