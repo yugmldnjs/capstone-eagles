@@ -103,6 +103,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         // --- SensorHandler 인스턴스 생성 ---
         sensorHandler = SensorHandler(this, this)
 
+
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
         lifecycleRegistry.currentState = Lifecycle.State.RESUMED

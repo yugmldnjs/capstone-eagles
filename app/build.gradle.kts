@@ -101,6 +101,11 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation (files("libs/ffmpeg-kit-full-gpl-6.0-2.LTS.aar")) // [웹 사이트에서 aar 파일 다운로드 받은 후 안드로이드 프로젝트 libs 폴더에 추가]
     implementation ("com.arthenica:smart-exception-java:0.2.1")
+
+    implementation("androidx.media3:media3-exoplayer:1.2.0")
+    implementation("androidx.media3:media3-ui:1.2.0")
+    implementation("androidx.media3:media3-common:1.2.0")
+
 }
 
 fun getNaverMapClientId(): String {

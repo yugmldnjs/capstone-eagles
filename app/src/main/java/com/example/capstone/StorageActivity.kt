@@ -1,5 +1,6 @@
 package com.example.capstone
 
+import android.content.ContentValues
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -17,16 +18,18 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.math.log10
 import kotlin.math.pow
-import androidx.core.net.toUri
 import androidx.core.view.isVisible
 import kotlin.collections.mutableListOf
 import android.media.MediaMetadataRetriever
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.lifecycle.lifecycleScope
 import com.example.capstone.util.LocationUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 
 data class VideoItem(
     val videoPath: String,
@@ -152,16 +155,37 @@ class StorageActivity : AppCompatActivity() {
             mutableListOf(),
             onDeleteCallback = { deletedItem ->
                 try {
-                    val deletedRows = contentResolver.delete(deletedItem.videoPath.toUri(), null, null)
-                    if (deletedRows > 0) {
-                        Toast.makeText(this, "영상을 삭제했습니다.", Toast.LENGTH_SHORT).show()
+                    val file = File(deletedItem.videoPath)
+
+                    // 1. 파일이 존재하는지 확인
+                    if (file.exists()) {
+                        // 2. 삭제 시도
+                        if (file.delete()) {
+                            Toast.makeText(this, "영상을 삭제했습니다", Toast.LENGTH_SHORT).show()
+
+                            // 데이터 리스트 갱신
+                            fullVideoList.remove(deletedItem)
+                            eventVideoList.remove(deletedItem)
+
+                            // 화면 갱신
+                            val currentList = if (binding.fullVideoUnderline.isVisible) fullVideoList else eventVideoList
+                            storageAdapter.updateList(currentList)
+                            checkEmptyList()
+                        } else {
+                            Toast.makeText(this, "영상 삭제에 실패했습니다", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        // 예외: 파일이 이미 없는 경우 (유령 파일) -> 리스트 정리해줌
                         fullVideoList.remove(deletedItem)
                         eventVideoList.remove(deletedItem)
-                        storageAdapter.updateList(if (binding.fullVideoUnderline.isVisible) fullVideoList else eventVideoList)
+
+                        val currentList = if (binding.fullVideoUnderline.isVisible) fullVideoList else eventVideoList
+                        storageAdapter.updateList(currentList)
                         checkEmptyList()
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(this, "영상 삭제에 실패했습니다.", Toast.LENGTH_SHORT).show()
+                    // 에러 발생 시
+                    Toast.makeText(this, "오류 발생: ${e.message}", Toast.LENGTH_SHORT).show()
                     Log.e("StorageActivity", "Error deleting video", e)
                 }
             },
@@ -170,7 +194,11 @@ class StorageActivity : AppCompatActivity() {
                     putExtra("VIDEO_PATH", clickedVideo.videoPath)
                 }
                 startActivity(intent)
+            },
+            onDownloadClick = { videoItem ->
+                saveToGallery(videoItem)
             }
+
         )
 
         binding.storageRecyclerView.adapter = storageAdapter
@@ -178,6 +206,90 @@ class StorageActivity : AppCompatActivity() {
         binding.storageRecyclerView.addItemDecoration(DividerItemDecoration(this, LinearLayoutManager.VERTICAL))
     }
 
+    //갤러리 영상 저장 함수
+    private fun saveToGallery(videoItem: VideoItem) {
+        val sourceFile = File(videoItem.videoPath)
+
+        // 원본 파일이 있는지 확인
+        if (!sourceFile.exists()) {
+            Toast.makeText(this, "저장 실패: 원본 파일이 없습니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val folderName = if (videoItem.videoPath.contains("Events")) {
+            "Biki_Events"      // 사고 영상이면
+        } else {
+            "Biki_Full"  // 일반 영상이면
+        }
+
+        try {
+            val dateString = File(videoItem.videoPath).nameWithoutExtension.takeLast(23)
+            val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(dateString)
+            val formattedDateName = "Biki_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(date)}"
+
+            val resolver = contentResolver
+            //  영상 파일(.mp4) 저장 값
+            val videoValues = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, "$formattedDateName.mp4") // 이름 설정
+                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+                // 갤러리 내 'Movies/BikiVideos' 폴더에 저장
+                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/" + folderName)
+            }
+
+
+            val videoCollection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val videoItemUri = resolver.insert(videoCollection, videoValues)
+
+            if (videoItemUri != null) {
+                //  데이터 복사 (원본 -> 갤러리)
+                resolver.openOutputStream(videoItemUri).use { outputStream ->
+                    FileInputStream(sourceFile).use { inputStream ->
+                        inputStream.copyTo(outputStream!!)
+                    }
+                }
+
+                // 저장 완료 상태로 변경
+                videoValues.clear()
+                videoValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+                resolver.update(videoItemUri, videoValues, null, null)
+
+
+                // srt 파일 저장
+                // 원본 영상 경로에서 확장자만 .srt로 변경하여 자막 파일 찾기
+                val srtSourceFile = File(videoItem.videoPath.replace(".mp4", ".srt", ignoreCase = true))
+
+                if (srtSourceFile.exists()) {
+                    val srtValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, "$formattedDateName.srt")
+                        put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/" + folderName)
+                    }
+
+
+                    val srtCollection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    val srtItemUri = resolver.insert(srtCollection, srtValues)
+
+                    if (srtItemUri != null) {
+                        resolver.openOutputStream(srtItemUri).use { outputStream ->
+                            FileInputStream(srtSourceFile).use { inputStream ->
+                                inputStream.copyTo(outputStream!!)
+                            }
+                        }
+                        // 자막 저장 완료 처리
+                        srtValues.clear()
+                        srtValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        resolver.update(srtItemUri, srtValues, null, null)
+                    }
+                }
+                Toast.makeText(this, "갤러리에 영상이 저장되었습니다", Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            Log.e("StorageActivity", "Gallery Save Error", e)
+            Toast.makeText(this, "저장 실패: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
     private fun selectFullVideoTab() {
         binding.fullVideoUnderline.visibility = View.VISIBLE
         binding.eventVideoUnderline.visibility = View.GONE
