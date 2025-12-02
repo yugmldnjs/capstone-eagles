@@ -27,6 +27,9 @@ class PotholeOverlayManager(
     private var potholeListener: ListenerRegistration? = null
     private var lastPotholeEventTime: Long = 0L
 
+    // ✅ 현재 메모리에 로드된 포트홀 리스트 (복사본 반환)
+    fun getCurrentPotholes(): List<PotholeData> = potholePoints.toList()
+
     var showPotholeMarkers: Boolean = true
         set(value) {
             field = value

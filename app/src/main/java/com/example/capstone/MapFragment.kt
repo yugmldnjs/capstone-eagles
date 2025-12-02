@@ -20,12 +20,21 @@ import com.example.capstone.data.PotholeRepository
 import com.example.capstone.map.CongestionOverlayManager
 import com.example.capstone.map.MapLocationManager
 import com.example.capstone.map.PotholeOverlayManager
+import android.speech.tts.TextToSpeech
+import java.util.Locale
+import com.example.capstone.utils.LocationUtils
+import kotlin.math.abs
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     companion object {
         private const val TAG = "MapFragment"
         private const val REQ_LOCATION = 1000
+
+        // ✅ 포트홀 경고 조건
+        private const val POTHOLE_ALERT_DISTANCE_METERS = 20.0   // 거리 20m
+        private const val POTHOLE_ALERT_ANGLE_DEG = 60.0         // 진행 방향 ±60도 안쪽만
+        private const val POTHOLE_ALERT_INTERVAL_MS = 10_000L    // 최소 10초 간격
     }
 
     private lateinit var naverMap: NaverMap
@@ -46,6 +55,18 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     private var showCongestion: Boolean = true
     private var showPotholeMarkers: Boolean = true
+
+    // ✅ TTS (포트홀 경고용)
+    private var tts: TextToSpeech? = null
+
+    // 최근 경고 시간 + 이미 경고한 포트홀 ID
+    private var lastPotholeAlertTime: Long = 0L
+    private val alertedPotholeIds = mutableSetOf<String>()
+
+    // 진행 방향 계산용 (직전 위치)
+    private var prevLatForHeading: Double? = null
+    private var prevLonForHeading: Double? = null
+    private var lastHeadingDeg: Double? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -73,6 +94,15 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             auth = auth
         ) { lat, lon ->
             onLocationUpdatedFromManager(lat, lon)
+        }
+
+        // 4) ✅ TTS 초기화
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts?.language = Locale.KOREAN
+            } else {
+                Log.e(TAG, "TTS 초기화 실패: status=$status")
+            }
         }
     }
     private fun setupRecenterButton(rootView: View) {
@@ -116,7 +146,19 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
     private fun onLocationUpdatedFromManager(lat: Double, lon: Double) {
         if (!isMapReady) return
 
-        // 네이버 기본 오버레이 업데이트
+        // ✅ 1) 진행 방향(heading) 업데이트 (직전 위치 기준)
+        val prevLat = prevLatForHeading
+        val prevLon = prevLonForHeading
+        if (prevLat != null && prevLon != null) {
+            val moved = LocationUtils.calculateDistance(prevLat, prevLon, lat, lon)
+            if (moved >= 1.0) {  // 1m 이상 움직였을 때만 방향 갱신
+                lastHeadingDeg = LocationUtils.calculateBearing(prevLat, prevLon, lat, lon)
+            }
+        }
+        prevLatForHeading = lat
+        prevLonForHeading = lon
+
+        // 2) 네이버 기본 오버레이 업데이트
         updateMyLocationMarker(lat, lon)
 
         if (isFirstLocation) {
@@ -135,8 +177,72 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                 .animate(CameraAnimation.Easing)
             naverMap.moveCamera(cameraUpdate)
         }
+
+        // ✅ 3) 포트홀 TTS 경고 체크
+        checkPotholeAlertTts(lat, lon)
     }
 
+    // ✅ 현재 주행 방향 앞 20m 안에 포트홀이 있는지 확인하고 TTS 재생
+    private fun checkPotholeAlertTts(lat: Double, lon: Double) {
+        val ttsEngine = tts ?: return
+        if (!this::potholeManager.isInitialized) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastPotholeAlertTime < POTHOLE_ALERT_INTERVAL_MS) return
+
+        val heading = lastHeadingDeg
+        val potholes = potholeManager.getCurrentPotholes()
+        if (potholes.isEmpty()) return
+
+        var target: com.example.capstone.data.PotholeData? = null
+        var minDist = Double.MAX_VALUE
+
+        for (p in potholes) {
+            val dist = LocationUtils.calculateDistance(
+                lat, lon,
+                p.latitude, p.longitude
+            )
+            if (dist > POTHOLE_ALERT_DISTANCE_METERS) continue
+
+            // 진행 방향 기준 앞쪽인지 확인 (±60도)
+            if (heading != null) {
+                val bearingToPin = LocationUtils.calculateBearing(
+                    lat, lon,
+                    p.latitude, p.longitude
+                )
+                var diff = abs(bearingToPin - heading)
+                if (diff > 180.0) diff = 360.0 - diff
+                if (diff > POTHOLE_ALERT_ANGLE_DEG) continue
+            }
+
+            // 같은 포트홀에 대해 한 번만 경고
+            val id = p.id
+            if (id != null && alertedPotholeIds.contains(id)) {
+                continue
+            }
+
+            if (dist < minDist) {
+                minDist = dist
+                target = p
+            }
+        }
+
+        if (target != null) {
+            lastPotholeAlertTime = now
+            target.id?.let { alertedPotholeIds.add(it) }
+            speakPotholeWarning()
+        }
+    }
+
+    private fun speakPotholeWarning() {
+        val ttsEngine = tts ?: return
+        ttsEngine.speak(
+            "포트홀을 주의하세요",
+            TextToSpeech.QUEUE_ADD,
+            null,
+            "POTHOLE_WARNING"
+        )
+    }
 
     override fun onMapReady(map: NaverMap) {
         naverMap = map
@@ -351,6 +457,15 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         if (this::potholeManager.isInitialized) {
             potholeManager.stop()
         }
+
+        // ✅ TTS 자원 해제
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
+        alertedPotholeIds.clear()
+        prevLatForHeading = null
+        prevLonForHeading = null
+        lastHeadingDeg = null
 
         mapView.onDestroy()
     }

@@ -54,6 +54,8 @@ import androidx.preference.PreferenceManager
 import com.example.capstone.ml.IOUTracker
 import com.example.capstone.ml.BoundingBox
 import com.example.capstone.ml.Track
+import android.media.AudioManager
+import android.media.ToneGenerator
 
 class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener {
 
@@ -126,9 +128,22 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
     // ★ TFLite 추론 간 최소 간격 제어용
     private var lastInferenceTime: Long = 0L
 
+    // ✅ 포트홀 감지 알림음 재생용
+    private var toneGenerator: ToneGenerator? = null
+
     private fun isPotholeModelEnabled(): Boolean {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
         return prefs.getBoolean("use_pothole_model", true)
+    }
+
+    // ✅ 모델이 포트홀을 감지했을 때 짧은 띵- 소리
+    private fun playPotholeBeep() {
+        val gen = toneGenerator ?: return
+        try {
+            gen.startTone(ToneGenerator.TONE_PROP_BEEP, 150) // 150ms 정도
+        } catch (e: Exception) {
+            Log.w(TAG, "포트홀 beep 재생 실패", e)
+        }
     }
 
     private fun resetTrackerState() {
@@ -163,6 +178,14 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
 
         val tracks = tracker.update(boxes)
         val currentIds = tracks.map { it.id }.toSet()
+
+        // ✅ 이번 프레임에서 새로 등장한 트랙 ID들
+        val addedIds = currentIds - prevTrackIds
+        if (addedIds.isNotEmpty()) {
+            // 한 프레임에 여러 개 생겨도 "띵-" 한 번이면 충분하다고 보고 1번만 호출
+            playPotholeBeep()
+        }
+
         val removedIds = prevTrackIds - currentIds
 
         // 살아있는 트랙 상태 업데이트
@@ -231,6 +254,8 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         // --- SensorHandler 인스턴스 생성 ---
         sensorHandler = SensorHandler(this, this)
 
+        // ✅ 포트홀 감지 알림음 초기화
+        toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
@@ -788,5 +813,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         potholeDetector = null
 
         analysisExecutor.shutdown()
+
+        // ✅ 알림음 리소스 정리
+        toneGenerator?.release()
+        toneGenerator = null
     }
 }
