@@ -113,7 +113,7 @@ class StorageActivity : AppCompatActivity() {
             val retriever = MediaMetadataRetriever()
             retriever.setDataSource(file.absolutePath)
 
-            val date = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.KOREA).parse(file.nameWithoutExtension.substring(file.nameWithoutExtension.length-15))
+            val date = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.KOREA).parse(file.nameWithoutExtension.takeLast(15))
             val size = file.length()
             val durationString = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
             val duration = durationString?.toLongOrNull() ?: 0L
@@ -223,9 +223,8 @@ class StorageActivity : AppCompatActivity() {
         }
 
         try {
-            val dateString = File(videoItem.videoPath).nameWithoutExtension.takeLast(23)
-            val date = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(dateString)
-            val formattedDateName = "Biki_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.KOREA).format(date)}"
+            val dateString = File(videoItem.videoPath).nameWithoutExtension.takeLast(15)
+            val formattedDateName = "Biki_${dateString}"
 
             val resolver = contentResolver
             //  영상 파일(.mp4) 저장 값

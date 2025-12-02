@@ -61,6 +61,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.0.1")
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
     implementation("com.google.guava:guava:33.0.0-android")
+    implementation(libs.androidx.media3.exoplayer)
 
     val camerax_version = "1.5.0"
     implementation(libs.androidx.core.ktx)
