@@ -85,6 +85,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.0.1")
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
     implementation("com.google.guava:guava:33.0.0-android")
+    implementation(libs.androidx.media3.exoplayer)
 
     val camerax_version = "1.5.0"
     implementation(libs.androidx.core.ktx)
@@ -125,6 +126,11 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation (files("libs/ffmpeg-kit-full-gpl-6.0-2.LTS.aar")) // [웹 사이트에서 aar 파일 다운로드 받은 후 안드로이드 프로젝트 libs 폴더에 추가]
     implementation ("com.arthenica:smart-exception-java:0.2.1")
+
+    implementation("androidx.media3:media3-exoplayer:1.2.0")
+    implementation("androidx.media3:media3-ui:1.2.0")
+    implementation("androidx.media3:media3-common:1.2.0")
+
 
     // TensorFlow Lite 기본 runtime
     implementation("org.tensorflow:tensorflow-lite:2.13.0")

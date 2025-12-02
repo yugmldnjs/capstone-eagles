@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [EventEntity::class],  // 사용할 Entity 등록
-    version = 1,                       // DB 버전 (스키마 변경 시 증가)
+    version = 3,                       // DB 버전 (스키마 변경 시 증가)
     exportSchema = false               // 스키마 내보내기 비활성화
 )
 abstract class BikiDatabase : RoomDatabase() {
@@ -23,7 +23,9 @@ abstract class BikiDatabase : RoomDatabase() {
                     context.applicationContext,
                     BikiDatabase::class.java,
                     "biki_database"  // DB 파일 이름
-                ).build()
+                ).fallbackToDestructiveMigration()
+                    .build()
+
                 INSTANCE = instance
                 instance
             }
