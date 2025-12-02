@@ -263,7 +263,7 @@ class StorageActivity : AppCompatActivity() {
                         put(MediaStore.MediaColumns.DISPLAY_NAME, "$formattedDateName.srt")
                         put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/" + folderName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "application/x-subrip")
                     }
 
 
