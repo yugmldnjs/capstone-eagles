@@ -24,6 +24,16 @@ import android.speech.tts.TextToSpeech
 import java.util.Locale
 import com.example.capstone.utils.LocationUtils
 import kotlin.math.abs
+import com.example.capstone.data.PotholeData
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import android.widget.TextView
+import android.widget.Button
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import android.content.Intent
+import android.net.Uri
+import com.example.capstone.BuildConfig
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
@@ -36,6 +46,22 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         private const val POTHOLE_ALERT_ANGLE_DEG = 60.0         // 진행 방향 ±60도 안쪽만
         private const val POTHOLE_ALERT_INTERVAL_MS = 10_000L    // 최소 10초 간격
     }
+
+    private val httpClient by lazy { OkHttpClient() }
+
+    // 역지오코딩 결과 보관용
+    private data class PotholeAddressInfo(
+        val fullAddress: String,
+        val area1: String?,   // 시·도 (예: 광주광역시)
+        val area2: String?,   // 시·군·구 (예: 서구)
+        val area3: String?    // 읍·면·동
+    )
+
+    // 지자체(청) 정보
+    private data class LocalGovInfo(
+        val name: String,     // 예: "광주광역시 서구청"
+        val phone: String     // 예: "062-360-7114"
+    )
 
     private lateinit var naverMap: NaverMap
     private lateinit var mapView: MapView
@@ -318,17 +344,232 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         // 포트홀 매니저
         potholeManager = PotholeOverlayManager(
+            context = requireContext(),
             naverMap = naverMap,
-            potholeRepo = potholeRepo
-        ) { lat, lon, zoom ->
-            isProgrammaticMove = true
-            val cameraPosition = CameraPosition(LatLng(lat, lon), zoom)
-            val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
-                .animate(CameraAnimation.Easing)
-            naverMap.moveCamera(cameraUpdate)
-        }
+            potholeRepo = potholeRepo,
+            onFocusCamera = { lat, lon, zoom ->
+                isProgrammaticMove = true
+                val cameraPosition = CameraPosition(LatLng(lat, lon), zoom)
+                val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+                    .animate(CameraAnimation.Easing)
+                naverMap.moveCamera(cameraUpdate)
+            },
+            onReportClick = { pothole ->
+                // 여기서 바텀 시트 열기
+                showPotholeReportBottomSheet(pothole)
+            }
+        )
         potholeManager.showPotholeMarkers = showPotholeMarkers
         potholeManager.start()
+
+        naverMap.setOnMapClickListener { _, _ ->
+            potholeManager.closeInfoWindow()
+        }
+    }
+
+    private fun showPotholeReportBottomSheet(pothole: PotholeData) {
+        val dialog = BottomSheetDialog(requireContext())
+        val view = layoutInflater.inflate(R.layout.bottomsheet_pothole_report, null)
+
+        val tvLocation = view.findViewById<TextView>(R.id.tv_pothole_info)
+        val tvOffice = view.findViewById<TextView>(R.id.tv_office_info)
+        val btnCall = view.findViewById<Button>(R.id.btn_call_office)
+        val btnSafetyApp = view.findViewById<Button>(R.id.btn_open_safety_app)
+
+        // 기본 문구
+        tvLocation.text = "포트홀 위치: 주소를 불러오는 중..."
+        tvOffice.text = "관할 지자체: 확인 중..."
+        btnCall.isEnabled = false
+
+        // 위경도 → 주소 + 행정구역 정보 가져오기
+        fetchAddressForPothole(pothole) { info ->
+            if (info == null) {
+                tvLocation.text = "포트홀 위치: 주소를 불러오지 못했습니다."
+                tvOffice.text = "관할 지자체: 확인 불가 (근처 지자체로 문의해주세요)"
+
+                // 주소가 없어도 최소한 120으로는 연결
+                btnCall.setOnClickListener {
+                    val intent = Intent(Intent.ACTION_DIAL).apply {
+                        data = Uri.parse("tel:120")
+                    }
+                    startActivity(intent)
+                    dialog.dismiss()
+                }
+                btnCall.isEnabled = true
+                return@fetchAddressForPothole
+            }
+
+            // 지자체 자동 선택
+            val gov = getLocalGovernmentInfo(info.area1, info.area2)
+
+            tvLocation.text = "포트홀 위치: ${info.fullAddress}"
+            tvOffice.text = "관할 지자체: ${gov.name} (${gov.phone})"
+
+            btnCall.setOnClickListener {
+                val intent = Intent(Intent.ACTION_DIAL).apply {
+                    data = Uri.parse("tel:${gov.phone}")
+                }
+                startActivity(intent)
+                dialog.dismiss()
+            }
+            btnCall.isEnabled = true
+        }
+
+        // 안전신문고 앱 / 플레이스토어로 이동
+        btnSafetyApp.setOnClickListener {
+            val packageName = "kr.go.safepeople"  // 안전신문고 앱 패키지명
+            val pm = requireContext().packageManager
+            val launchIntent = pm.getLaunchIntentForPackage(packageName)
+
+            if (launchIntent != null) {
+                // 앱이 설치되어 있으면 바로 실행
+                startActivity(launchIntent)
+            } else {
+                // 설치 안 되어 있으면 플레이스토어 → 안 되면 웹스토어
+                try {
+                    val playStoreIntent = Intent(Intent.ACTION_VIEW).apply {
+                        data = Uri.parse("market://details?id=$packageName")
+                        setPackage("com.android.vending")
+                    }
+                    startActivity(playStoreIntent)
+                } catch (e: Exception) {
+                    val webIntent = Intent(Intent.ACTION_VIEW).apply {
+                        data = Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
+                    }
+                    startActivity(webIntent)
+                }
+            }
+
+            dialog.dismiss()
+        }
+
+        dialog.setContentView(view)
+        dialog.show()
+    }
+
+    private fun postAddressInfoResult(
+        info: PotholeAddressInfo?,
+        onResult: (PotholeAddressInfo?) -> Unit
+    ) {
+        if (!isAdded) return
+        requireActivity().runOnUiThread {
+            onResult(info)
+        }
+    }
+
+    private fun getLocalGovernmentInfo(
+        area1: String?,
+        area2: String?
+    ): LocalGovInfo {
+        val a1 = area1 ?: ""
+        val a2 = area2 ?: ""
+
+        // 🔹 광주 5개 구는 실제 대표전화로 매핑
+        return when {
+            a1.contains("광주") && a2.contains("서구") ->
+                LocalGovInfo("광주광역시 서구청", "062-360-7114")  // 대표전화
+
+            a1.contains("광주") && a2.contains("북구") ->
+                LocalGovInfo("광주광역시 북구청", "062-410-6794")  // 대표전화
+
+            a1.contains("광주") && a2.contains("동구") ->
+                LocalGovInfo("광주광역시 동구청", "062-608-2114")  // 대표전화
+
+            a1.contains("광주") && a2.contains("남구") ->
+                LocalGovInfo("광주광역시 남구청", "062-651-9020")  // 대표전화
+
+            a1.contains("광주") && a2.contains("광산구") ->
+                LocalGovInfo("광주광역시 광산구청", "062-960-8114")  // 대표전화
+
+            else -> {
+                // 그 외 지역은 일단 "OOO청 / 120" 으로 처리 (나중에 필요 지역만 추가)
+                val regionName = when {
+                    a1.isNotBlank() && a2.isNotBlank() -> "$a1 $a2 청"
+                    a2.isNotBlank() -> "$a2 청"
+                    a1.isNotBlank() -> "$a1 청"
+                    else -> "관할 지자체"
+                }
+                // TODO: 자주 사용하는 지역은 실제 대표번호로 차근차근 추가
+                LocalGovInfo(regionName, "120")
+            }
+        }
+    }
+
+    private fun fetchAddressForPothole(
+        pothole: PotholeData,
+        onResult: (PotholeAddressInfo?) -> Unit
+    ) {
+        val lat = pothole.latitude
+        val lon = pothole.longitude
+
+        // 네이버 Reverse Geocoding 은 x=경도, y=위도
+        val coords = "$lon,$lat"
+
+        val url =
+            "https://maps.apigw.ntruss.com/map-reversegeocode/v2/gc" +
+                    "?coords=$coords" +
+                    "&orders=roadaddr,addr" +
+                    "&output=json" +
+                    "&request=coordsToaddr" +
+                    "&sourcecrs=epsg:4326"
+
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .addHeader("X-NCP-APIGW-API-KEY-ID", BuildConfig.NAVER_MAP_CLIENT_ID)
+            .addHeader("X-NCP-APIGW-API-KEY", BuildConfig.NAVER_MAP_CLIENT_SECRET)
+            .build()
+
+        Thread {
+            try {
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.e(TAG, "reverseGeocode 실패: ${response.code}")
+                        postAddressInfoResult(null, onResult)
+                        return@use
+                    }
+
+                    val body = response.body?.string()
+                    if (body.isNullOrEmpty()) {
+                        postAddressInfoResult(null, onResult)
+                        return@use
+                    }
+
+                    val json = JSONObject(body)
+                    val results = json.optJSONArray("results")
+                    if (results == null || results.length() == 0) {
+                        postAddressInfoResult(null, onResult)
+                        return@use
+                    }
+
+                    val first = results.getJSONObject(0)
+
+                    val region = first.optJSONObject("region")
+                    val area1 = region?.optJSONObject("area1")?.optString("name", "")
+                    val area2 = region?.optJSONObject("area2")?.optString("name", "")
+                    val area3 = region?.optJSONObject("area3")?.optString("name", "")
+
+                    val land = first.optJSONObject("land")
+                    val name = land?.optString("name", "")
+                    val number1 = land?.optString("number1", "")
+                    val number2 = land?.optString("number2", "")
+
+                    val address = listOf(area1, area2, area3, name, number1, number2)
+                        .filter { !it.isNullOrBlank() }
+                        .joinToString(" ")
+
+                    val info = PotholeAddressInfo(
+                        fullAddress = address,
+                        area1 = area1,
+                        area2 = area2,
+                        area3 = area3
+                    )
+                    postAddressInfoResult(info, onResult)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "reverseGeocode 예외", e)
+                postAddressInfoResult(null, onResult)
+            }
+        }.start()
     }
 
     /**

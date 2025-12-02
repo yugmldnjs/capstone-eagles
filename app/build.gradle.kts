@@ -28,6 +28,14 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         manifestPlaceholders["NAVER_MAP_CLIENT_ID"] = getNaverMapClientId()
+
+        // ✅ 코드에서 쓰기 위한 BuildConfig 상수
+        val naverClientId = getNaverMapClientId()
+        manifestPlaceholders["NAVER_MAP_CLIENT_ID"] = naverClientId
+        buildConfigField("String", "NAVER_MAP_CLIENT_ID", "\"$naverClientId\"")
+
+        val naverClientSecret = getNaverMapClientSecret()
+        buildConfigField("String", "NAVER_MAP_CLIENT_SECRET", "\"$naverClientSecret\"")
     }
 
     buildTypes {
@@ -120,6 +128,8 @@ dependencies {
 
     // TensorFlow Lite 기본 runtime
     implementation("org.tensorflow:tensorflow-lite:2.13.0")
+
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
 fun getNaverMapClientId(): String {
     val properties = Properties()
@@ -130,4 +140,15 @@ fun getNaverMapClientId(): String {
     }
 
     return properties.getProperty("NAVER_MAP_CLIENT_ID", "")
+}
+
+fun getNaverMapClientSecret(): String {
+    val properties = Properties()
+    val localPropsFile = rootProject.file("local.properties")
+
+    if (localPropsFile.exists()) {
+        FileInputStream(localPropsFile).use { properties.load(it) }
+    }
+
+    return properties.getProperty("NAVER_MAP_CLIENT_SECRET", "")
 }

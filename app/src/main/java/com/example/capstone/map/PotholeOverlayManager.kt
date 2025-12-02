@@ -1,19 +1,28 @@
 package com.example.capstone.map
 
+import android.content.Context
 import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.widget.Button
+import android.widget.TextView
+import com.example.capstone.R
 import com.example.capstone.data.PotholeData
 import com.example.capstone.data.PotholeRepository
 import com.example.capstone.utils.LocationUtils
 import com.google.firebase.firestore.ListenerRegistration
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.NaverMap
+import com.naver.maps.map.overlay.InfoWindow
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
 
 class PotholeOverlayManager(
+    private val context: Context,
     private val naverMap: NaverMap,
     private val potholeRepo: PotholeRepository,
-    private val onFocusCamera: (lat: Double, lon: Double, zoom: Double) -> Unit
+    private val onFocusCamera: (lat: Double, lon: Double, zoom: Double) -> Unit,
+    private val onReportClick: (pothole: PotholeData) -> Unit
 ) {
 
     companion object {
@@ -26,6 +35,49 @@ class PotholeOverlayManager(
     private val potholePoints = mutableListOf<PotholeData>()
     private var potholeListener: ListenerRegistration? = null
     private var lastPotholeEventTime: Long = 0L
+
+    // 단일 InfoWindow 인스턴스를 여러 마커에서 재사용
+    private val infoWindow = InfoWindow().apply {
+        adapter = object : InfoWindow.DefaultViewAdapter(context) {
+            override fun getContentView(window: InfoWindow): View {
+                val view = LayoutInflater.from(context)
+                    .inflate(R.layout.view_pothole_info_window, null)
+
+                val title = view.findViewById<TextView>(R.id.tv_title)
+
+                // 이 InfoWindow가 올라간 마커 → tag 에 PotholeData 들어있음
+                val marker = window.marker
+                val pothole = marker?.tag as? PotholeData
+
+                title.text = if (pothole != null) {
+                    "포트홀 (${pothole.count}회 감지)"
+                } else {
+                    "포트홀"
+                }
+
+                // ⚠️ 여기에서 버튼에 클릭 리스너 달지 말고, 그냥 UI만 그리게 둔다
+                return view
+            }
+        }
+
+        // ✅ InfoWindow 전체를 클릭했을 때 “신고” 동작 실행
+        setOnClickListener { overlay ->
+            val window = overlay as InfoWindow
+            val marker = window.marker
+            val pothole = marker?.tag as? PotholeData
+
+            window.close()
+
+            pothole?.let {
+                onReportClick(it)  // MapFragment.showPotholeReportBottomSheet 호출
+            }
+            true
+        }
+    }
+
+    fun closeInfoWindow() {
+        infoWindow.close()
+    }
 
     // ✅ 현재 메모리에 로드된 포트홀 리스트 (복사본 반환)
     fun getCurrentPotholes(): List<PotholeData> = potholePoints.toList()
@@ -82,7 +134,7 @@ class PotholeOverlayManager(
         }
         if (hasNearbyPin) {
             Log.d(TAG, "기존 포트홀(20m 이내) 존재 → 새 핀 추가하지 않음")
-            lastPotholeEventTime = now      // 알림도 너무 자주 울리지 않게 시간은 갱신
+            lastPotholeEventTime = now
             return false
         }
 
@@ -91,7 +143,6 @@ class PotholeOverlayManager(
         addOrMergePothole(lat, lon)
         return true
     }
-
 
     private fun addOrMergePothole(lat: Double, lon: Double) {
         val newPothole = PotholeData(
@@ -128,10 +179,21 @@ class PotholeOverlayManager(
         potholes.forEachIndexed { index, pothole ->
             val marker = potholeMarkers[index]
             marker.position = LatLng(pothole.latitude, pothole.longitude)
+            marker.tag = pothole           // ✅ InfoWindow에서 PotholeData 꺼내기용
             marker.map = naverMap
 
-            marker.setOnClickListener {
+            marker.setOnClickListener { overlay ->
+                val clickedMarker = overlay as Marker
+
+                // 1) 카메라 줌인
                 onFocusCamera(pothole.latitude, pothole.longitude, 17.0)
+
+                // 2) 인포윈도우 토글
+                if (clickedMarker.infoWindow == null) {
+                    infoWindow.open(clickedMarker)
+                } else {
+                    infoWindow.close()
+                }
                 true
             }
         }
