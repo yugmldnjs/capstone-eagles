@@ -1,5 +1,23 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Base.Theme.Capstone" parent="Theme.Material3.Light.NoActionBar">
+        <item name="switchStyle">@style/MyColorfulSwitch</item>
+        <item name="colorPrimary">#003853</item>
+
+        <item name="colorSecondary">#003853</item>
+
+        <item name="colorOutline">#FFFFFF</item>
+
+        <item name="materialSwitchStyle">@style/MyColorfulSwitch</item>
+    </style>
+
+
+    <style name="MyColorfulSwitch" parent="Widget.Material3.CompoundButton.MaterialSwitch">
+        <item name="thumbTint">@color/selector_switch_thumb</item>
+
+        <item name="trackTint">@color/selector_switch_track</item>
+
+        <item name="trackDecorationTint">@android:color/transparent</item>
+
     </style>
 
     <style name="Theme.Capstone" parent="Base.Theme.Capstone">
@@ -14,9 +32,9 @@
 
     <!-- 이거 3개는 앱 처음 시작 스플래시 창(로딩 창) 설정을 위한 것-->
     <style name="Theme.App.Starting" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/intro_background</item>
+        <item name="windowSplashScreenBackground">#91d4c2</item>
 
-        <item name="windowSplashScreenAnimatedIcon">@drawable/main_icon</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_3</item>
 
         <item name="postSplashScreenTheme">@style/Theme.Capstone</item>
     </style>
