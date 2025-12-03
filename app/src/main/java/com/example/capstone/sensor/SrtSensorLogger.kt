@@ -3,7 +3,7 @@ package com.example.capstone.sensor
 import android.content.Context
 import android.location.Location
 import android.util.Log
-import com.example.capstone.util.LocationUtils
+import com.example.capstone.utils.LocationUtils
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale

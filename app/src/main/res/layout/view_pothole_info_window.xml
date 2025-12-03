@@ -21,5 +21,5 @@
         android:text="지자체에 신고"
         android:textSize="12sp"
         android:layout_marginTop="4dp"
-        android:backgroundTint="@color/pothole_call_button"/>
+        android:backgroundTint="@color/red"/>
 </LinearLayout>

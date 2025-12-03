@@ -24,7 +24,7 @@ import android.media.MediaMetadataRetriever
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.lifecycle.lifecycleScope
-import com.example.capstone.util.LocationUtils
+import com.example.capstone.utils.LocationUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
