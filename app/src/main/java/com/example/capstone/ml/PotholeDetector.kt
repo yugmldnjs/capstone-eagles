@@ -9,12 +9,12 @@ import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import android.graphics.Bitmap
 import android.graphics.Matrix
-import java.io.ByteArrayOutputStream
 import java.nio.ByteOrder
 import android.os.Parcel
 import android.os.Parcelable
 import kotlin.math.max
 import kotlin.math.min
+import org.tensorflow.lite.gpu.GpuDelegate
 
 /**
  * 포트홀 감지 결과 하나를 표현하는 데이터 클래스
@@ -73,6 +73,7 @@ class PotholeDetector(
 
     private val interpreter: Interpreter
     private val labels: List<String>
+    private var gpuDelegate: GpuDelegate? = null
 
     // ★ 모델 입력 사이즈 (로그에서 shape=[1, 320, 320, 3])
     private val inputWidth = 320
@@ -92,13 +93,26 @@ class PotholeDetector(
     init {
         // 1) 모델 로드
         val modelBuffer = loadModelFile(context, MODEL_FILE)
+
         val options = Interpreter.Options().apply {
-            // 필요 시 스레드 조정
+            // CPU 스레드 수 (GPU가 안 붙을 때 사용)
             setNumThreads(4)
-            // GPU delegate는 나중에 안정화되면 붙이는 걸 추천
+
+            // 🔹 GPU delegate 시도 (실패해도 앱이 죽지 않도록 모든 Throwable 처리)
+            try {
+                val delegate = GpuDelegate()
+                gpuDelegate = delegate
+                addDelegate(delegate)
+                Log.d(TAG, "PotholeDetector: GPU delegate enabled")
+            } catch (t: Throwable) {
+                // NoClassDefFoundError, UnsatisfiedLinkError 등 어떤 문제든
+                // 전부 여기서 잡고 CPU로만 동작하게 폴백
+                Log.w(TAG, "PotholeDetector: GPU delegate unavailable, fallback to CPU", t)
+                gpuDelegate = null
+            }
         }
+
         interpreter = Interpreter(modelBuffer, options)
-        Log.d(TAG, "TFLite interpreter created")
 
         // 2) 라벨 로드
         labels = loadLabels(context, LABEL_FILE)
@@ -331,10 +345,10 @@ class PotholeDetector(
             maxDetections = 5       // 필요하면 3~10 등으로 조절
         )
 
-        Log.d(
-            TAG,
-            "detect() raw=${rawDetections.size} filtered=${finalDetections.size} (score >= $scoreThreshold)"
-        )
+//        Log.d(
+//            TAG,
+//            "detect() raw=${rawDetections.size} filtered=${finalDetections.size} (score >= $scoreThreshold)"
+//        )
 
         return finalDetections
     }
@@ -401,6 +415,13 @@ class PotholeDetector(
     }
 
     fun close() {
-        interpreter.close()
+        try {
+            interpreter.close()
+        } catch (_: Exception) { }
+
+        try {
+            gpuDelegate?.close()
+            gpuDelegate = null
+        } catch (_: Exception) { }
     }
 }

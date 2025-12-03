@@ -137,6 +137,9 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite:2.13.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.13.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.13.0")
 }
 fun getNaverMapClientId(): String {
     val properties = Properties()
