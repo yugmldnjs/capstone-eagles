@@ -27,10 +27,7 @@ import android.content.BroadcastReceiver
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.Context
-import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
-import android.widget.TextView
 import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -45,6 +42,8 @@ class MainActivity2 : AppCompatActivity() {
         private const val TAG = "PotholeReceiver"
     }
 
+    private var lastBackPressedTime = 0L
+    private val BACK_PRESS_INTERVAL = 2000L  // 2초 안에 두 번
     private lateinit var binding: ActivityMain2Binding
     private val viewModel: MainViewModel by viewModels()
     private lateinit var mapBackPressedCallback: OnBackPressedCallback
@@ -184,6 +183,7 @@ class MainActivity2 : AppCompatActivity() {
         checkLocationPermission()
 
         hideNavigationBar() // 네비게이션 바 숨기는 함수
+
         // 1. 뒤로가기 콜백 객체 생성 (enabled: false 로 일단 비활성화)
         mapBackPressedCallback = object : OnBackPressedCallback(false) {
             override fun handleOnBackPressed() {
@@ -195,7 +195,35 @@ class MainActivity2 : AppCompatActivity() {
         // 2. 디스패처에 콜백 추가
         this.onBackPressedDispatcher.addCallback(this, mapBackPressedCallback)
 
-        // --- ⬆️ 여기까지 추가 ⬆️ ---
+        // ✅ 3. 앱 전체 뒤로가기 처리 (두 번 눌러 종료)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // (1) 설정 같은 프래그먼트가 떠 있으면 먼저 프래그먼트만 닫기
+                if (supportFragmentManager.backStackEntryCount > 0) {
+                    supportFragmentManager.popBackStack()
+                    return
+                }
+
+                // (2) 지도 화면이면, 먼저 카메라 화면으로 돌아가기
+                if (mapBackPressedCallback.isEnabled) {
+                    mapBackPressedCallback.handleOnBackPressed()
+                    return
+                }
+
+                // (3) 메인 카메라 화면일 때만, 두 번 눌러 종료 로직
+                val now = System.currentTimeMillis()
+                if (now - lastBackPressedTime <= BACK_PRESS_INTERVAL) {
+                    finish()   // 앱 종료
+                } else {
+                    lastBackPressedTime = now
+                    Toast.makeText(
+                        this@MainActivity2,
+                        "뒤로가기를 한 번 더 누르면 앱이 종료됩니다.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        })
 
         setupClickListeners()
         observeViewModel() // 이 함수가 콜백을 활성화/비활성화 제어
