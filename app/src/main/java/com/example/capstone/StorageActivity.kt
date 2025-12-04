@@ -61,7 +61,7 @@ class StorageActivity : AppCompatActivity() {
         }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                goToMainActivity()
+                finish()
             }
         })
         setupRecyclerView()
@@ -90,7 +90,7 @@ class StorageActivity : AppCompatActivity() {
             checkEmptyList()
         }
         binding.backback.setOnClickListener{
-            goToMainActivity()
+            finish()
         }
         binding.refresh.setOnClickListener{
             it.animate().rotationBy(360f).setDuration(500).start()
