@@ -145,6 +145,7 @@ class PotholeOverlayManager(
         lon: Double,
         photoBitmap: Bitmap?
     ) {
+        Log.d("PotholeOverlayMgr", "addPothole: photo=${photoBitmap != null}")
         val newPothole = PotholeData(
             latitude = lat,
             longitude = lon,

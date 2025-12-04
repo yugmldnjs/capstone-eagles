@@ -56,6 +56,7 @@ import com.example.capstone.ml.Track
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.graphics.Bitmap
+import java.util.Objects.nonNull
 
 class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener {
 
@@ -63,7 +64,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         private const val TAG = "RecordingService"
         private const val CHANNEL_ID = "recording_channel"
         private const val NOTIFICATION_ID = 1
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
+        private const val FILENAME_FORMAT = "yyyyMMdd_HHmmss"
 
         const val ACTION_RECORDING_STARTED = "com.example.capstone.RECORDING_STARTED"
         const val ACTION_RECORDING_STOPPED = "com.example.capstone.RECORDING_STOPPED"
@@ -443,10 +444,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
 
                             if (detections.isNotEmpty()) {
                                 val maxScore = detections.maxOf { it.score }
-                                Log.d(
-                                    TAG,
-                                    "Pothole detected: count=${detections.size}, topScore=$maxScore"
-                                )
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error during pothole detection", e)

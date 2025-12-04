@@ -61,7 +61,7 @@ class StorageActivity : AppCompatActivity() {
         setupRecyclerView()
         lifecycleScope.launch {
             // suspend 함수들을 순차적으로 호출
-            loadVideosFromStorage(fullVideoList, "Recordings")
+            loadVideosFromStorage(fullVideoList, "recordings")
             loadVideosFromStorage(eventVideoList, "Events")
 
             // 모든 로딩이 끝나면 메인 스레드에서 UI 업데이트
@@ -115,24 +115,7 @@ class StorageActivity : AppCompatActivity() {
 
             val baseName = file.nameWithoutExtension
 
-            val date: Date = runCatching {
-                when {
-                    // 새 포맷: Bik-i_yyyy-MM-dd-HH-mm-ss-SSS
-                    baseName.startsWith("Bik-i_") -> {
-                        val ts = baseName.removePrefix("Bik-i_")
-                        SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.KOREA).parse(ts)!!
-                    }
-
-                    // 예전 포맷(이벤트 영상 등): ...YYYYMMDD_HHMMSS (마지막 15자리)
-                    else -> {
-                        val ts = baseName.takeLast(15)
-                        SimpleDateFormat("yyyyMMdd_HHmmss", Locale.KOREA).parse(ts)!!
-                    }
-                }
-            }.getOrElse {
-                // 둘 다 안 맞으면 그냥 파일 수정 시각으로 표시
-                Date(file.lastModified())
-            }
+            val date = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.KOREA).parse(file.nameWithoutExtension.takeLast(15))
 
             val size = file.length()
             val durationString = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)

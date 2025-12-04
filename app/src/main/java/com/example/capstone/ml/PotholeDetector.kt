@@ -181,6 +181,11 @@ class PotholeDetector(
         val uBuffer = image.planes[1].buffer
         val vBuffer = image.planes[2].buffer
 
+// ★ 동일 ImageProxy 에 대해 여러 번 호출될 수 있으니 매번 되감기
+        yBuffer.rewind()
+        uBuffer.rewind()
+        vBuffer.rewind()
+
         val ySize = yBuffer.remaining()
         val uSize = uBuffer.remaining()
         val vSize = vBuffer.remaining()

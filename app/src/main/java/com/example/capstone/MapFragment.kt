@@ -627,6 +627,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             return false
         }
 
+        Log.d("MapFragment", "addPotholeFromCurrentLocationFromModel: photo=${photoBitmap != null}")
         // 3) 실제 포트홀 추가 / 중복 여부는 매니저가 판단
         return potholeManager.addPotholeFromLocation(lat, lon, photoBitmap)
     }

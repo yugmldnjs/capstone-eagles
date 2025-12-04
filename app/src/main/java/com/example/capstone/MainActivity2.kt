@@ -91,9 +91,11 @@ class MainActivity2 : AppCompatActivity() {
                             if (hasNewPotholeEvent) {
                                 // RecordingService 에서 마지막 포트홀 crop 꺼내오기 (한 번만 꺼내짐)
                                 val cropBitmap = recordingService?.consumeLastPotholeCrop()
+                                Log.d("MainActivity2", "consumeLastPotholeCrop -> ${cropBitmap != null}")
 
                                 // 지도 + Firestore + Storage 한 번에 처리
                                 val added = mapFragment.addPotholeFromCurrentLocationFromModel(cropBitmap)
+                                Log.d("MainActivity2", "addPotholeFromCurrentLocationFromModel result=$added, photo=${cropBitmap != null}")
 
                                 // 만약 5m 안에 기존 핀이 있어서 새로 안 찍혔으면, 이 crop은 그냥 버려지는 셈
                                 if (!added) {
