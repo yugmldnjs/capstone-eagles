@@ -44,6 +44,9 @@ import android.os.Environment
 import android.widget.Toast
 import com.bumptech.glide.request.target.CustomTarget
 import com.bumptech.glide.request.transition.Transition
+import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioManager
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
@@ -132,10 +135,17 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             onLocationUpdatedFromManager(lat, lon)
         }
 
-        // 4) ✅ TTS 초기화
+        // 4) ✅ TTS 초기화 (알림 스트림용 설정)
         tts = TextToSpeech(requireContext()) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts?.language = Locale.KOREAN
+
+                // 알림/이벤트 용도로 오디오 속성 설정
+                val audioAttrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+                tts?.setAudioAttributes(audioAttrs)
             } else {
                 Log.e(TAG, "TTS 초기화 실패: status=$status")
             }
@@ -272,10 +282,27 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     private fun speakPotholeWarning() {
         val ttsEngine = tts ?: return
+
+        // 🔊 알림 스트림 볼륨을 최대로 올리기 (정말 “가장 크게” 원할 때)
+        val audioManager =
+            requireContext().getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_NOTIFICATION)
+        audioManager.setStreamVolume(
+            AudioManager.STREAM_NOTIFICATION,
+            maxVol,
+            0 // UI 안 띄우고 조용히 변경
+        )
+
+        // TTS도 알림 스트림 + 최대 볼륨으로
+        val params = Bundle().apply {
+            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_NOTIFICATION)
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)  // 0.0 ~ 1.0
+        }
+
         ttsEngine.speak(
             "포트홀을 주의하세요",
             TextToSpeech.QUEUE_ADD,
-            null,
+            params,
             "POTHOLE_WARNING"
         )
     }

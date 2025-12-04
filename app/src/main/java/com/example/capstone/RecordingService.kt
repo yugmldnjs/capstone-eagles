@@ -282,7 +282,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         sensorHandler = SensorHandler(this, this)
 
         // ✅ 포트홀 감지 알림음 초기화
-        toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
+        toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
