@@ -148,8 +148,16 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         return prefs.getBoolean("use_pothole_model", true)
     }
 
-    // ✅ 모델이 포트홀을 감지했을 때 짧은 띵- 소리
+    private fun isPotholeSoundEnabled(): Boolean {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        return prefs.getBoolean("enable_pothole_tts", true)
+    }
+
+    // ✅ 모델이 포트홀을 감지했을 때 짧은 beep- 소리
     private fun playPotholeBeep() {
+        // 설정에서 음성 안내가 꺼져 있으면 바로 리턴
+        if (!isPotholeSoundEnabled()) return
+
         val gen = toneGenerator ?: return
         try {
             gen.startTone(ToneGenerator.TONE_PROP_BEEP, 150) // 150ms 정도

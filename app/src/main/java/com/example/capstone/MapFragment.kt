@@ -230,6 +230,9 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     // ✅ 현재 주행 방향 앞 20m 안에 포트홀이 있는지 확인하고 TTS 재생
     private fun checkPotholeAlertTts(lat: Double, lon: Double) {
+        // 🔇 설정에서 음성 안내 꺼져 있으면 전부 스킵
+        if (!isPotholeSoundEnabled()) return
+
         val ttsEngine = tts ?: return
         if (!this::potholeManager.isInitialized) return
 
@@ -280,18 +283,13 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         }
     }
 
+    private fun isPotholeSoundEnabled(): Boolean {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        return prefs.getBoolean("enable_pothole_tts", true)
+    }
+
     private fun speakPotholeWarning() {
         val ttsEngine = tts ?: return
-
-        // 🔊 알림 스트림 볼륨을 최대로 올리기 (정말 “가장 크게” 원할 때)
-        val audioManager =
-            requireContext().getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_NOTIFICATION)
-        audioManager.setStreamVolume(
-            AudioManager.STREAM_NOTIFICATION,
-            maxVol,
-            0 // UI 안 띄우고 조용히 변경
-        )
 
         // TTS도 알림 스트림 + 최대 볼륨으로
         val params = Bundle().apply {

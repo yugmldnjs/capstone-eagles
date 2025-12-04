@@ -56,7 +56,7 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory app:title="편의 설정"
+    <PreferenceCategory app:title="편의 설정(앱 재시작 시 적용)"
         app:iconSpaceReserved="false">
 
         <SwitchPreferenceCompat
