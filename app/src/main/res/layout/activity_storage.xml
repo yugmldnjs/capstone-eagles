@@ -13,11 +13,22 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal">
 
+
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
+
+            <ImageButton
+                android:id="@+id/backback"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/backbtn"
+                android:background="@null"
+                android:layout_marginTop="10dp"
+                android:layout_marginLeft="5dp"
+                />
 
             <Button
                 android:id="@+id/fullVideoBtn"
@@ -27,7 +38,6 @@
                 android:textColor="@color/black"
                 android:textSize="18dp"
                 android:background="@android:color/transparent"
-                android:layout_marginTop="20dp"
                 />
 
             <View
@@ -45,6 +55,15 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
+            <ImageButton
+                android:id="@+id/refresh"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/refresh"
+                android:background="@null"
+                android:layout_marginLeft="148dp"
+                android:layout_marginTop="10dp"
+                />
             <Button
                 android:id="@+id/eventVideoBtn"
                 android:layout_width="match_parent"
@@ -52,8 +71,7 @@
                 android:text="@string/event_video"
                 android:textSize="18dp"
                 android:textColor="@color/black"
-                android:background="@android:color/transparent"
-                android:layout_marginTop="20dp"/>
+                android:background="@android:color/transparent" />
 
             <View
                 android:id="@+id/eventVideoUnderline"

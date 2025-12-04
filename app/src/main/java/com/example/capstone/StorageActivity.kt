@@ -24,6 +24,7 @@ import androidx.core.view.isVisible
 import kotlin.collections.mutableListOf
 import android.media.MediaMetadataRetriever
 import android.location.Geocoder
+import androidx.activity.OnBackPressedCallback
 import androidx.lifecycle.lifecycleScope
 import com.example.capstone.database.BikiDatabase
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +59,11 @@ class StorageActivity : AppCompatActivity() {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                goToMainActivity()
+            }
+        })
         setupRecyclerView()
         lifecycleScope.launch {
             // suspend 함수들을 순차적으로 호출
@@ -83,8 +89,58 @@ class StorageActivity : AppCompatActivity() {
             storageAdapter.updateList(eventVideoList)
             checkEmptyList()
         }
+        binding.backback.setOnClickListener{
+            goToMainActivity()
+        }
+        binding.refresh.setOnClickListener{
+            it.animate().rotationBy(360f).setDuration(500).start()
+
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                recreate()
+            }, 500)
+        }
+    }
+    private fun goToMainActivity() {
+        val intent = Intent(this, MainActivity::class.java)
+        
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+
+        startActivity(intent)
+        finish() // 현재 저장소 액티비티는 닫기
+    }
+    override fun onResume() {
+        super.onResume()
+        hideSystemUI()
     }
 
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            hideSystemUI()
+        }
+    }
+    private fun hideSystemUI() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            // 안드로이드 11(R) 이상
+            window.setDecorFitsSystemWindows(false)
+            window.insetsController?.let { controller ->
+                controller.hide(android.view.WindowInsets.Type.systemBars())
+                controller.systemBarsBehavior =
+                    android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            // 안드로이드 10 이하 (구버전 호환)
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                    android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            or android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            or android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            or android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            or android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                    )
+        }}
     private suspend fun loadVideosFromStorage(videoList: MutableList<VideoItem>, dir: String) {
         videoList.clear()
         Log.d("StorageActivity", "dir: $dir==============================")
