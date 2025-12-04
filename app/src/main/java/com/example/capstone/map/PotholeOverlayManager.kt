@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
-import android.widget.Button
 import android.widget.TextView
 import com.example.capstone.R
 import com.example.capstone.data.PotholeData
@@ -28,7 +27,7 @@ class PotholeOverlayManager(
     companion object {
         private const val TAG = "PotholeOverlayMgr"
         private const val MIN_POTHOLE_EVENT_INTERVAL_MS = 2000L
-        private const val EXISTING_PIN_DISTANCE_METERS = 20.0
+        private const val EXISTING_PIN_DISTANCE_METERS = 5.0
     }
 
     private val potholeMarkers = mutableListOf<Marker>()
@@ -49,11 +48,7 @@ class PotholeOverlayManager(
                 val marker = window.marker
                 val pothole = marker?.tag as? PotholeData
 
-                title.text = if (pothole != null) {
-                    "포트홀 (${pothole.count}회 감지)"
-                } else {
-                    "포트홀"
-                }
+                title.text = "포트홀"
 
                 // ⚠️ 여기에서 버튼에 클릭 리스너 달지 말고, 그냥 UI만 그리게 둔다
                 return view
@@ -133,23 +128,22 @@ class PotholeOverlayManager(
                     EXISTING_PIN_DISTANCE_METERS
         }
         if (hasNearbyPin) {
-            Log.d(TAG, "기존 포트홀(20m 이내) 존재 → 새 핀 추가하지 않음")
+            Log.d(TAG, "기존 포트홀(5m 이내) 존재 → 새 핀 추가하지 않음")
             lastPotholeEventTime = now
             return false
         }
 
         // 3) 여기까지 왔으면 "새로운 포트홀"로 보고 실제 추가
         lastPotholeEventTime = now
-        addOrMergePothole(lat, lon)
+        addPothole(lat, lon)
         return true
     }
 
-    private fun addOrMergePothole(lat: Double, lon: Double) {
+    private fun addPothole(lat: Double, lon: Double) {
         val newPothole = PotholeData(
             latitude = lat,
             longitude = lon,
-            createdAt = System.currentTimeMillis(),
-            count = 1
+            createdAt = System.currentTimeMillis()
         )
         potholePoints.add(newPothole)
 
