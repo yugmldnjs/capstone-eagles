@@ -37,6 +37,13 @@ import com.example.capstone.BuildConfig
 import android.widget.ImageView
 import com.bumptech.glide.Glide
 import android.graphics.Bitmap
+import android.graphics.drawable.Drawable
+import android.provider.MediaStore
+import android.content.ContentValues
+import android.os.Environment
+import android.widget.Toast
+import com.bumptech.glide.request.target.CustomTarget
+import com.bumptech.glide.request.transition.Transition
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
@@ -370,6 +377,74 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         }
     }
 
+    private fun downloadPotholePhoto(pothole: PotholeData) {
+        val url = pothole.imageUrl
+        if (url.isNullOrBlank()) {
+            Toast.makeText(requireContext(), "다운로드할 사진이 없습니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Glide.with(this)
+            .asBitmap()
+            .load(url)
+            .into(object : CustomTarget<Bitmap>() {
+                override fun onResourceReady(
+                    resource: Bitmap,
+                    transition: Transition<in Bitmap>?
+                ) {
+                    saveBitmapToGallery(resource)
+                }
+
+                override fun onLoadCleared(placeholder: Drawable?) {
+                    // 사용 안 함
+                }
+
+                override fun onLoadFailed(errorDrawable: Drawable?) {
+                    Toast.makeText(requireContext(), "사진 다운로드에 실패했습니다.", Toast.LENGTH_SHORT).show()
+                }
+            })
+    }
+
+    private fun saveBitmapToGallery(bitmap: Bitmap) {
+        val resolver = requireContext().contentResolver
+
+        val fileName = "pothole_${System.currentTimeMillis()}.jpg"
+
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            put(
+                MediaStore.Images.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_PICTURES + "/Biki_Potholes"
+            )
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+
+        val collection = MediaStore.Images.Media
+            .getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+
+        val uri = resolver.insert(collection, contentValues)
+        if (uri == null) {
+            Toast.makeText(requireContext(), "사진 저장에 실패했습니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        resolver.openOutputStream(uri).use { out ->
+            if (out == null) {
+                Toast.makeText(requireContext(), "사진 저장에 실패했습니다.", Toast.LENGTH_SHORT).show()
+                return
+            }
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+        }
+
+        // 저장 완료 표시
+        contentValues.clear()
+        contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(uri, contentValues, null, null)
+
+        Toast.makeText(requireContext(), "사진이 갤러리에 저장되었습니다.", Toast.LENGTH_SHORT).show()
+    }
+
     private fun showPotholeReportBottomSheet(pothole: PotholeData) {
         val dialog = BottomSheetDialog(requireContext())
         val view = layoutInflater.inflate(R.layout.bottomsheet_pothole_report, null)
@@ -380,6 +455,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         val btnSafetyApp = view.findViewById<Button>(R.id.btn_open_safety_app)
 
         val ivPotholePhoto = view.findViewById<ImageView>(R.id.iv_pothole_photo)
+        val btnDownloadPhoto = view.findViewById<Button>(R.id.btn_download_photo)
 
         // 기본 문구
         tvLocation.text = "포트홀 위치: 주소를 불러오는 중..."
@@ -389,14 +465,23 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         // ✅ 사진 표시 로직
         if (pothole.imageUrl.isNullOrBlank()) {
             ivPotholePhoto.visibility = View.GONE
+            btnDownloadPhoto.visibility = View.GONE
         } else {
             ivPotholePhoto.visibility = View.VISIBLE
+            btnDownloadPhoto.visibility = View.VISIBLE
+
             Glide.with(view)
                 .load(pothole.imageUrl)
-                .placeholder(R.drawable.loading)   // 이미 있는 걸 재사용해도 되고, 새 placeholder 만들어도 됨
+                .placeholder(R.drawable.loading)
                 .error(R.drawable.loading)
                 .into(ivPotholePhoto)
+
+            // ✅ 사진 저장 버튼
+            btnDownloadPhoto.setOnClickListener {
+                downloadPotholePhoto(pothole)
+            }
         }
+
 
         // 위경도 → 주소 + 행정구역 정보 가져오기
         fetchAddressForPothole(pothole) { info ->
