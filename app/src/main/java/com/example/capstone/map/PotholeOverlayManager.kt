@@ -15,6 +15,7 @@ import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.InfoWindow
 import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.overlay.OverlayImage
+import android.graphics.Bitmap
 
 class PotholeOverlayManager(
     private val context: Context,
@@ -109,46 +110,63 @@ class PotholeOverlayManager(
         potholePoints.clear()
     }
 
-    /**
-     * 모델/추적기에서 "지금 위치에 포트홀 확정" 신호가 왔을 때 호출
-     * @return 이번 호출로 실제 새로운 포트홀 핀을 추가했으면 true, 아니면 false
-     */
-    fun addPotholeFromLocation(lat: Double, lon: Double): Boolean {
+    fun addPotholeFromLocation(
+        lat: Double,
+        lon: Double,
+        photoBitmap: Bitmap?
+    ): Boolean {
         val now = System.currentTimeMillis()
 
-        // 1) 너무 자주 들어오는 이벤트는 막기
+        // 1) 너무 자주 들어오는 이벤트 방지
         if (now - lastPotholeEventTime < MIN_POTHOLE_EVENT_INTERVAL_MS) {
             Log.d(TAG, "포트홀 이벤트 너무 짧은 간격, 무시")
             return false
         }
 
-        // 2) 20m 안에 이미 핀이 있으면 같은 포트홀로 보고 새로 추가하지 않음
+        // 2) 5m 안에 이미 핀이 있으면 새로 추가 X
         val hasNearbyPin = potholePoints.any { p ->
             LocationUtils.calculateDistance(p.latitude, p.longitude, lat, lon) <
                     EXISTING_PIN_DISTANCE_METERS
         }
         if (hasNearbyPin) {
-            Log.d(TAG, "기존 포트홀(5m 이내) 존재 → 새 핀 추가하지 않음")
+            Log.d(TAG, "기존 포트홀(5m 이내) 존재 → 새 핀/업로드 모두 안 함")
             lastPotholeEventTime = now
             return false
         }
 
-        // 3) 여기까지 왔으면 "새로운 포트홀"로 보고 실제 추가
+        // 3) 진짜 새 포트홀
         lastPotholeEventTime = now
-        addPothole(lat, lon)
+        addPothole(lat, lon, photoBitmap)
         return true
     }
 
-    private fun addPothole(lat: Double, lon: Double) {
+    private fun addPothole(
+        lat: Double,
+        lon: Double,
+        photoBitmap: Bitmap?
+    ) {
         val newPothole = PotholeData(
             latitude = lat,
             longitude = lon,
-            createdAt = System.currentTimeMillis()
+            createdAt = System.currentTimeMillis(),
+            imageUrl = null // URL은 업로드 이후에 Firestore에서 다시 받아올 것
         )
-        potholePoints.add(newPothole)
 
+        // 로컬 리스트 / 마커 먼저 업데이트
+        potholePoints.add(newPothole)
         updatePotholeMarkers(potholePoints)
-        potholeRepo.uploadPothole(newPothole.latitude, newPothole.longitude)
+
+        // Firestore + Storage 업로드
+        potholeRepo.uploadPothole(
+            lat = newPothole.latitude,
+            lon = newPothole.longitude,
+            photoBitmap = photoBitmap
+        ) { success ->
+            Log.d(TAG, "uploadPothole result: $success")
+            // 성공/실패 여부는 지금은 그냥 로그만
+            // 실제 데이터는 listenAllPotholes() 스냅샷으로 다시 들어올 거라
+            // potholePoints는 자동으로 최신 상태가 된다.
+        }
     }
 
     private fun updatePotholeMarkers(potholes: List<PotholeData>) {

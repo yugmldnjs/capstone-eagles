@@ -5,7 +5,8 @@ package com.example.capstone.data
  */
 data class PotholeData(
     val id: String? = null,     // Firestore 문서 ID
-    val latitude: Double,
-    val longitude: Double,
-    val createdAt: Long = System.currentTimeMillis()
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val createdAt: Long = System.currentTimeMillis(),
+    val imageUrl: String? = null
 )

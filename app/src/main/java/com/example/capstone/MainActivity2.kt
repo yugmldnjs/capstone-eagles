@@ -84,13 +84,22 @@ class MainActivity2 : AppCompatActivity() {
                     // ✅ 포트홀 감지 결과 콜백 등록
                     recordingService?.setPotholeListener { tracks, hasNewPotholeEvent ->
                         runOnUiThread {
-                            // 1) 트랙 기반 박스 + ID 표시
+                            // 1) 화면에 바운딩박스 + ID 갱신
                             binding.potholeOverlay.updateTracks(tracks)
 
-                            // 2) 포트홀 확정 시 지도에 핀 추가
+                            // 2) 새 포트홀 확정된 경우만 처리
                             if (hasNewPotholeEvent) {
-                                val added = mapFragment.addPotholeFromCurrentLocationFromModel()
-                                // TODO: added == true 인 경우에만 TTS/띵 소리 재생
+                                // RecordingService 에서 마지막 포트홀 crop 꺼내오기 (한 번만 꺼내짐)
+                                val cropBitmap = recordingService?.consumeLastPotholeCrop()
+
+                                // 지도 + Firestore + Storage 한 번에 처리
+                                val added = mapFragment.addPotholeFromCurrentLocationFromModel(cropBitmap)
+
+                                // 만약 5m 안에 기존 핀이 있어서 새로 안 찍혔으면, 이 crop은 그냥 버려지는 셈
+                                if (!added) {
+                                    // 따로 할 거 없음. cropBitmap 는 GC가 알아서 처리.
+                                    Log.d(TAG, "새 포트홀로 인정되지 않아 사진 업로드도 건너뜀")
+                                }
                             }
                         }
                     }
@@ -536,33 +545,6 @@ class MainActivity2 : AppCompatActivity() {
             }, 500)
         }
     }
-
-//    override fun onSensorDataChanged(accelData: FloatArray, linearAccel: FloatArray) {
-//        // 이 메서드는 Service에 의해 주기적으로 호출됩니다.
-//        // UI 업데이트는 반드시 메인 스레드에서 수행해야 합니다.
-//        if (linearAccel[2] <= -0.4) {
-//            Log.w("accelData", "급제동 감지 Z: %.2f".format(accelData[2]))
-//        } else if(accelData[1]<= 1.0){
-//            Log.w("accelData", "넘어짐 감지 Y(원본): %.2f".format(accelData[1]))
-//        }
-//
-//        runOnUiThread {
-//            binding.accelerate?.text = "X: %.2f  Y: %.2f  Z: %.2f".format(accelData[0], accelData[1], accelData[2])
-//            if(linearAccel[2]<=-0.4){
-//                binding.crash?.text = "급정거 감지 Z: %.2f".format(accelData[2])
-//            }else{
-//                binding.crash?.text = ""
-//            }
-//            if(accelData[1]<=2.0){
-//                // 기기 회전 시 원래 Y축 가속도 값은 0에 가까워짐
-//                binding.fallen?.text = "넘어짐 감지 Y: %.2f".format(accelData[1])
-//            }else{
-//                binding.fallen?.text = ""
-//            }
-//
-//
-//        }
-//    }
 
     private fun observeViewModel() {
         viewModel.isFlashOn.observe(this) { isOn ->

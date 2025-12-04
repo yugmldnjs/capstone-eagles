@@ -140,6 +140,8 @@ dependencies {
 
     implementation("org.tensorflow:tensorflow-lite-gpu:2.13.0")
     implementation("org.tensorflow:tensorflow-lite-gpu-api:2.13.0")
+
+    implementation("com.google.firebase:firebase-storage-ktx:21.0.1")
 }
 fun getNaverMapClientId(): String {
     val properties = Properties()

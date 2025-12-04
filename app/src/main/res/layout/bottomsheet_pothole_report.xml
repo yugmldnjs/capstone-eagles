@@ -6,6 +6,17 @@
     android:padding="16dp"
     android:background="@color/pothole_bottomsheet_bg">
 
+    <!-- ✅ 포트홀 사진 -->
+    <ImageView
+        android:id="@+id/iv_pothole_photo"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:layout_marginBottom="12dp"
+        android:scaleType="centerCrop"
+        android:adjustViewBounds="true"
+        android:contentDescription="@string/pothole_photo"
+        android:visibility="gone" />
+
     <!-- 포트홀 위치 -->
     <TextView
         android:id="@+id/tv_pothole_info"

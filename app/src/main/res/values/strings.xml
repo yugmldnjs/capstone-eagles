@@ -17,4 +17,6 @@
     <string name="pw_search">비밀번호 찾기</string>
     <string name="pw_search_inf">가입한 이메일 주소를 입력해 주세요. \n비밀번호 재설정 메일이 발송됩니다.</string>
     <string name="send">전송</string>
+
+    <string name="pothole_photo">포트홀 사진</string>
 </resources>

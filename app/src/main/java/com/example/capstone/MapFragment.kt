@@ -34,6 +34,9 @@ import org.json.JSONObject
 import android.content.Intent
 import android.net.Uri
 import com.example.capstone.BuildConfig
+import android.widget.ImageView
+import com.bumptech.glide.Glide
+import android.graphics.Bitmap
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
@@ -376,10 +379,24 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         val btnCall = view.findViewById<Button>(R.id.btn_call_office)
         val btnSafetyApp = view.findViewById<Button>(R.id.btn_open_safety_app)
 
+        val ivPotholePhoto = view.findViewById<ImageView>(R.id.iv_pothole_photo)
+
         // 기본 문구
         tvLocation.text = "포트홀 위치: 주소를 불러오는 중..."
         tvOffice.text = "관할 지자체: 확인 중..."
         btnCall.isEnabled = false
+
+        // ✅ 사진 표시 로직
+        if (pothole.imageUrl.isNullOrBlank()) {
+            ivPotholePhoto.visibility = View.GONE
+        } else {
+            ivPotholePhoto.visibility = View.VISIBLE
+            Glide.with(view)
+                .load(pothole.imageUrl)
+                .placeholder(R.drawable.loading)   // 이미 있는 걸 재사용해도 되고, 새 placeholder 만들어도 됨
+                .error(R.drawable.loading)
+                .into(ivPotholePhoto)
+        }
 
         // 위경도 → 주소 + 행정구역 정보 가져오기
         fetchAddressForPothole(pothole) { info ->
@@ -586,12 +603,10 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         }
     }
 
-    /**
-     * 모델/추적기가 "포트홀 확정" 신호를 줄 때 호출.
-     * @return 이번 호출로 실제 새로운 포트홀 핀이 추가되었으면 true
-     */
-    fun addPotholeFromCurrentLocationFromModel(): Boolean {
-        // 0) locationManager 준비 여부 체크 (lateinit 보호)
+    fun addPotholeFromCurrentLocationFromModel(
+        photoBitmap: Bitmap?
+    ): Boolean {
+        // 0) locationManager 준비 여부 체크
         if (!this::locationManager.isInitialized) {
             Log.d(TAG, "addPotholeFromCurrentLocationFromModel: locationManager 미초기화, 무시")
             return false
@@ -613,7 +628,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         }
 
         // 3) 실제 포트홀 추가 / 중복 여부는 매니저가 판단
-        return potholeManager.addPotholeFromLocation(lat, lon)
+        return potholeManager.addPotholeFromLocation(lat, lon, photoBitmap)
     }
 
     private fun hasLocationPermission(): Boolean {

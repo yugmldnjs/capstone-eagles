@@ -414,6 +414,55 @@ class PotholeDetector(
         return result
     }
 
+    /**
+     * 한 프레임(image)에서 특정 PotholeDetection 영역만 잘라서 Bitmap으로 반환
+     * - cx, cy, w, h 는 0~1 정규화 좌표라고 가정
+     * - paddingScale 로 주변을 조금 더 넉넉하게 포함할 수 있음 (예: 1.3f → 30% 크게)
+     */
+    fun cropPotholeBitmap(
+        image: ImageProxy,
+        detection: PotholeDetection,
+        paddingScale: Float = 1.3f
+    ): Bitmap? {
+        return try {
+            // 1) YUV → Bitmap
+            val baseBitmap = imageProxyToBitmap(image)
+
+            // 2) 회전 보정 (detect()에서와 똑같이)
+            val rotationDegrees = image.imageInfo.rotationDegrees
+            val rotatedBitmap = rotateBitmap(baseBitmap, rotationDegrees)
+
+            val imgW = rotatedBitmap.width.toFloat()
+            val imgH = rotatedBitmap.height.toFloat()
+
+            // 3) 정규화된 bbox + 패딩
+            val cx = detection.cx.coerceIn(0f, 1f)
+            val cy = detection.cy.coerceIn(0f, 1f)
+            val bwNorm = (detection.w * paddingScale).coerceIn(0.01f, 2f)
+            val bhNorm = (detection.h * paddingScale).coerceIn(0.01f, 2f)
+
+            // 4) 실제 픽셀 좌표로 변환
+            val leftF = (cx - bwNorm / 2f) * imgW
+            val topF = (cy - bhNorm / 2f) * imgH
+            val rightF = (cx + bwNorm / 2f) * imgW
+            val bottomF = (cy + bhNorm / 2f) * imgH
+
+            // 5) 이미지 경계 안으로 클램프
+            val left = leftF.coerceIn(0f, imgW - 1f).toInt()
+            val top = topF.coerceIn(0f, imgH - 1f).toInt()
+            val right = rightF.coerceIn(left + 1f, imgW).toInt()
+            val bottom = bottomF.coerceIn(top + 1f, imgH).toInt()
+
+            val cropW = (right - left).coerceAtLeast(1)
+            val cropH = (bottom - top).coerceAtLeast(1)
+
+            Bitmap.createBitmap(rotatedBitmap, left, top, cropW, cropH)
+        } catch (e: Exception) {
+            Log.e(TAG, "cropPotholeBitmap failed", e)
+            null
+        }
+    }
+
     fun close() {
         try {
             interpreter.close()

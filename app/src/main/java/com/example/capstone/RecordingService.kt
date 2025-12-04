@@ -55,6 +55,7 @@ import com.example.capstone.ml.BoundingBox
 import com.example.capstone.ml.Track
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.graphics.Bitmap
 
 class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener {
 
@@ -131,6 +132,16 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
     // ✅ 포트홀 감지 알림음 재생용
     private var toneGenerator: ToneGenerator? = null
 
+    // ✅ 새 포트홀 발생 시 잘라낸 사진 임시 보관
+    @Volatile
+    private var lastPotholeCrop: Bitmap? = null
+
+    fun consumeLastPotholeCrop(): Bitmap? {
+        val bmp = lastPotholeCrop
+        lastPotholeCrop = null
+        return bmp
+    }
+
     private fun isPotholeModelEnabled(): Boolean {
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
         return prefs.getBoolean("use_pothole_model", true)
@@ -153,11 +164,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         frameIndex = 0
     }
 
-    /**
-     * IOUTracker 에 현재 프레임 detection 을 전달하고,
-     * 이번 프레임에서 "새 포트홀 확정" 이벤트가 있었는지 여부를 반환.
-     */
-    private fun updateTrackerAndCheckNewPothole(
+    fun updateTrackerAndCheckNewPothole(
         detections: List<PotholeDetection>
     ): Pair<List<Track>, Boolean> {
         val tracker = iouTracker ?: return emptyList<Track>() to false
@@ -179,16 +186,29 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
         val tracks = tracker.update(boxes)
         val currentIds = tracks.map { it.id }.toSet()
 
+        var hasNewPotholeEvent = false
+
         // ✅ 이번 프레임에서 새로 등장한 트랙 ID들
         val addedIds = currentIds - prevTrackIds
         if (addedIds.isNotEmpty()) {
             // 한 프레임에 여러 개 생겨도 "띵-" 한 번이면 충분하다고 보고 1번만 호출
             playPotholeBeep()
+
+            // 새로 생긴 트랙들 중에서, 점수/위치 조건을 만족하면
+            // "포트홀을 처음 인식한 순간"으로 보고 이벤트 발생
+            val bestNewTrack = tracks
+                .filter { it.id in addedIds }
+                .maxByOrNull { it.score }
+
+            if (bestNewTrack != null &&
+                bestNewTrack.score >= 0.6f &&   // 신뢰도 조건
+                bestNewTrack.bbox[1] >= 0.4f    // 화면 아래쪽(0.4 이상)에서만
+            ) {
+                hasNewPotholeEvent = true
+            }
         }
 
-        val removedIds = prevTrackIds - currentIds
-
-        // 살아있는 트랙 상태 업데이트
+        // 살아있는 트랙 상태 업데이트 (통계용으로 그대로 유지)
         for (t in tracks) {
             val state = trackStates.getOrPut(t.id) {
                 PotholeTrackState(
@@ -205,22 +225,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
             state.lastCy = t.bbox[1]
         }
 
-        var hasNewPotholeEvent = false
-
-        // 프레임 밖으로 완전히 사라진 트랙 처리
+        // 프레임에서 완전히 사라진 트랙 → 상태만 정리 (이제는 이벤트 발생 X)
+        val removedIds = prevTrackIds - currentIds
         for (id in removedIds) {
-            val state = trackStates[id] ?: continue
-            val lifetime = state.lastFrame - state.firstFrame + 1
-
-            if (!state.mapped &&
-                lifetime >= 1 &&
-                state.maxScore >= 0.6f &&
-                state.lastCy >= 0.4f
-            ) {
-                hasNewPotholeEvent = true
-                state.mapped = true
-            }
-
             trackStates.remove(id)
         }
 
@@ -410,6 +417,22 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.ImpactListener
                             val (tracks, hasNewPotholeEvent) = updateTrackerAndCheckNewPothole(
                                 detections
                             )
+
+                            // ✅ 1) 이번 프레임에 detection 이 하나라도 있으면, 일단 "최근 포트홀 사진"으로 저장
+                            val bestDetection = detections.maxByOrNull { it.score }
+                            if (bestDetection != null) {
+                                val crop = detector.cropPotholeBitmap(image, bestDetection)
+                                if (crop != null) {
+                                    lastPotholeCrop = crop
+                                    Log.d(TAG, "최근 포트홀 사진 crop 업데이트 (w=${crop.width}, h=${crop.height})")
+                                }
+                            }
+
+                            // ✅ 2) hasNewPotholeEvent == true 인 프레임에서는
+                            // 위에서 저장해둔 lastPotholeCrop 을 Activity 쪽에서 consumeLastPotholeCrop() 으로 꺼내서 사용
+                            if (hasNewPotholeEvent) {
+                                Log.d(TAG, "새 포트홀 확정: hasNewPotholeEvent=true, lastPotholeCrop != null ? ${lastPotholeCrop != null}")
+                            }
 
                             // ✅ 1) 리스너로 전달 (UI 업데이트 + 맵 핀 이벤트)
                             potholeListener?.let { listener ->
