@@ -66,14 +66,29 @@
 
     </LinearLayout>
 
-    <ImageButton
-        android:id="@+id/deleteButton"
-        android:layout_width="30dp"
-        android:layout_height="30dp"
-        android:src="@drawable/trash"
-        android:background="@null"
-        android:layout_marginTop="10dp"
-        />
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+        <ImageButton
+            android:id="@+id/downloadButton"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:src="@drawable/download__1_"
+            android:background="@null"
+            android:layout_marginTop="10dp"
+            />
+        <ImageButton
+            android:id="@+id/deleteButton"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:src="@drawable/trash"
+            android:background="@null"
+            android:layout_marginTop="30dp"
+            />
+
+    </LinearLayout>
+
 
 
 

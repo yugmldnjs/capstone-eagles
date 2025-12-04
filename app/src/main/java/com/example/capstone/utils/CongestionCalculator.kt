@@ -37,9 +37,12 @@ object CongestionCalculator {
      * @param radiusMeters 클러스터 반경 (미터)
      * @return 클러스터 리스트
      */
+
+    const val DEFAULT_RADIUS_METERS = 150.0  // ★ 반경 상수
+
     fun createClusters(
         locations: List<LocationData>,
-        radiusMeters: Double = 150.0
+        radiusMeters: Double = DEFAULT_RADIUS_METERS
     ): List<CongestionCluster> {
         if (locations.isEmpty()) return emptyList()
 

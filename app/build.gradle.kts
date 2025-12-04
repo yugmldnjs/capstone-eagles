@@ -28,11 +28,22 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         manifestPlaceholders["NAVER_MAP_CLIENT_ID"] = getNaverMapClientId()
+
+        // ✅ 코드에서 쓰기 위한 BuildConfig 상수
+        val naverClientId = getNaverMapClientId()
+        manifestPlaceholders["NAVER_MAP_CLIENT_ID"] = naverClientId
+        buildConfigField("String", "NAVER_MAP_CLIENT_ID", "\"$naverClientId\"")
+
+        val naverClientSecret = getNaverMapClientSecret()
+        buildConfigField("String", "NAVER_MAP_CLIENT_SECRET", "\"$naverClientSecret\"")
     }
 
     buildTypes {
         getByName("debug") {
             buildConfigField("boolean", "USE_DUMMY_BIKE_DATA", "true")
+
+            // 디버그 빌드에서는 더미 포트홀 ON
+            buildConfigField("boolean", "SHOW_DUMMY_POTHOLES", "true")
         }
         getByName("release") {
             isMinifyEnabled = false
@@ -41,6 +52,9 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("boolean", "USE_DUMMY_BIKE_DATA", "false")
+
+            // 릴리즈 빌드에서는 더미 포트홀 OFF
+            buildConfigField("boolean", "SHOW_DUMMY_POTHOLES", "false")
         }
     }
 
@@ -50,6 +64,16 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+    }
+
+    // assets 폴더 지정
+    sourceSets["main"].assets.srcDirs("src/main/assets")
+
+    // tflite 파일은 압축하지 않도록
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
 }
 
@@ -61,6 +85,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.0.1")
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
     implementation("com.google.guava:guava:33.0.0-android")
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.common.ktx)
 
     val camerax_version = "1.5.0"
     implementation(libs.androidx.core.ktx)
@@ -101,8 +127,22 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation (files("libs/ffmpeg-kit-full-gpl-6.0-2.LTS.aar")) // [웹 사이트에서 aar 파일 다운로드 받은 후 안드로이드 프로젝트 libs 폴더에 추가]
     implementation ("com.arthenica:smart-exception-java:0.2.1")
-}
 
+    implementation("androidx.media3:media3-exoplayer:1.2.0")
+    implementation("androidx.media3:media3-ui:1.2.0")
+    implementation("androidx.media3:media3-common:1.2.0")
+
+
+    // TensorFlow Lite 기본 runtime
+    implementation("org.tensorflow:tensorflow-lite:2.13.0")
+
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.13.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.13.0")
+
+    implementation("com.google.firebase:firebase-storage-ktx:21.0.1")
+}
 fun getNaverMapClientId(): String {
     val properties = Properties()
     val localPropsFile = rootProject.file("local.properties")
@@ -112,4 +152,15 @@ fun getNaverMapClientId(): String {
     }
 
     return properties.getProperty("NAVER_MAP_CLIENT_ID", "")
+}
+
+fun getNaverMapClientSecret(): String {
+    val properties = Properties()
+    val localPropsFile = rootProject.file("local.properties")
+
+    if (localPropsFile.exists()) {
+        FileInputStream(localPropsFile).use { properties.load(it) }
+    }
+
+    return properties.getProperty("NAVER_MAP_CLIENT_SECRET", "")
 }

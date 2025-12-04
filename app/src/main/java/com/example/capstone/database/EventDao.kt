@@ -25,15 +25,14 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE timestamp = :timestamp")
     suspend fun getEventByTimestamp(timestamp: Long): EventEntity?
 
+    @Query("SELECT * FROM events WHERE  extractedVideoPath= :extractedVideoPath")
+    suspend fun getEventByExtractedVideoPath(extractedVideoPath: String): EventEntity?
+
+    // 동일 원본의 이벤트 찾기
+    @Query("SELECT * FROM events WHERE recordingStartTimestamp = :recordingStartTime ORDER BY timestamp ASC")
+    suspend fun getEventsByRecordingStartTime(recordingStartTime: Long): List<EventEntity>
+
     // 이벤트 삭제
     @Query("DELETE FROM events WHERE timestamp = :timestamp")
     suspend fun deleteEvent(timestamp: Long)
-
-    // 특정 녹화 세션의 이벤트들 찾기
-    @Query("SELECT * FROM events WHERE recordingStartTimestamp = :timestamp")
-    suspend fun getEventsByRecordingTimestamp(timestamp: Long): List<EventEntity>
-
-    // URI가 null인 pending 이벤트들
-    @Query("SELECT * FROM events WHERE status = 'pending' AND videoUri IS NULL")
-    suspend fun getEventsWaitingForUri(): List<EventEntity>
 }

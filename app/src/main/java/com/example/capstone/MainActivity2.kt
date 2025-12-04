@@ -23,8 +23,27 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.activity.OnBackPressedCallback
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.Context
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.widget.TextView
+import androidx.core.app.ActivityCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 
 class MainActivity2 : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "PotholeReceiver"
+    }
 
     private lateinit var binding: ActivityMain2Binding
     private val viewModel: MainViewModel by viewModels()
@@ -41,6 +60,11 @@ class MainActivity2 : AppCompatActivity() {
     private var originalBrightness: Float = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
     private var isPowerSavingActive = false
 
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var locationRequest: LocationRequest
+
+    private val locationPermissionCode = 1000
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as RecordingService.LocalBinder
@@ -56,6 +80,31 @@ class MainActivity2 : AppCompatActivity() {
             binding.viewFinder.post {
                 binding.miniCamera.post {
                     recordingService?.setPreviewViews(binding.viewFinder, binding.miniCamera)
+
+                    // ✅ 포트홀 감지 결과 콜백 등록
+                    recordingService?.setPotholeListener { tracks, hasNewPotholeEvent ->
+                        runOnUiThread {
+                            // 1) 화면에 바운딩박스 + ID 갱신
+                            binding.potholeOverlay.updateTracks(tracks)
+
+                            // 2) 새 포트홀 확정된 경우만 처리
+                            if (hasNewPotholeEvent) {
+                                // RecordingService 에서 마지막 포트홀 crop 꺼내오기 (한 번만 꺼내짐)
+                                val cropBitmap = recordingService?.consumeLastPotholeCrop()
+                                Log.d("MainActivity2", "consumeLastPotholeCrop -> ${cropBitmap != null}")
+
+                                // 지도 + Firestore + Storage 한 번에 처리
+                                val added = mapFragment.addPotholeFromCurrentLocationFromModel(cropBitmap)
+                                Log.d("MainActivity2", "addPotholeFromCurrentLocationFromModel result=$added, photo=${cropBitmap != null}")
+
+                                // 만약 5m 안에 기존 핀이 있어서 새로 안 찍혔으면, 이 crop은 그냥 버려지는 셈
+                                if (!added) {
+                                    // 따로 할 거 없음. cropBitmap 는 GC가 알아서 처리.
+                                    Log.d(TAG, "새 포트홀로 인정되지 않아 사진 업로드도 건너뜀")
+                                }
+                            }
+                        }
+                    }
 
                     // 서비스 상태를 ViewModel에 동기화
                     viewModel.setRecordingState(recordingService?.isRecording() ?: false)
@@ -75,7 +124,7 @@ class MainActivity2 : AppCompatActivity() {
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
                 Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.POST_NOTIFICATIONS 
+                Manifest.permission.POST_NOTIFICATIONS
             )
         } else {
             arrayOf(
@@ -124,6 +173,16 @@ class MainActivity2 : AppCompatActivity() {
         binding = ActivityMain2Binding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+        // 0.5초마다, 높은 정확도로 요청
+        locationRequest = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            500
+        ).setMinUpdateDistanceMeters(0f).build()
+
+        checkLocationPermission()
+
         hideNavigationBar() // 네비게이션 바 숨기는 함수
         // 1. 뒤로가기 콜백 객체 생성 (enabled: false 로 일단 비활성화)
         mapBackPressedCallback = object : OnBackPressedCallback(false) {
@@ -159,7 +218,7 @@ class MainActivity2 : AppCompatActivity() {
 
         checkAndRequestPermissions()  // 권한 체크
 
-        // 브로드캐스트 리시버 등록
+        // 리시버 등록
         val filter = IntentFilter().apply {
             addAction(RecordingService.ACTION_RECORDING_STARTED)
             addAction(RecordingService.ACTION_RECORDING_STOPPED)
@@ -168,11 +227,9 @@ class MainActivity2 : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(recordingReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(recordingReceiver, filter)
         }
-
-        setupClickListeners()
-        observeViewModel()
 
         // 프래그먼트 뒤로가기 감지
         supportFragmentManager.addOnBackStackChangedListener {
@@ -189,6 +246,101 @@ class MainActivity2 : AppCompatActivity() {
                 syncUiToState()
             }
         }
+    }
+
+    private fun checkLocationPermission() {
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                locationPermissionCode
+            )
+        } else {
+            startLocationUpdates()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == locationPermissionCode &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            startLocationUpdates()
+        } else {
+            Toast.makeText(this, "속도 측정을 위해 위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // -----------------------------
+    // GPS 속도 업데이트 Callback
+    // -----------------------------
+    private var lastSpeed = 0.0
+
+    private val locationCallback = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult) {
+            val location = result.lastLocation ?: return
+
+            var speedKmh = location.speed * 3.6  // m/s → km/h
+
+            // ---- 미세 노이즈 제거 ----
+            if (speedKmh < 1.0) speedKmh = 0.0
+
+            // ---- 부드러운 속도 처리 ----
+          /*  speedKmh = (lastSpeed * 0.7) + (speedKmh * 0.3)
+            lastSpeed = speedKmh*/
+
+            binding.speedTextView.text = String.format("%.1f", speedKmh)
+        }
+    }
+
+    // -----------------------------
+    // GPS ON/OFF 확인
+    // -----------------------------
+    private fun isGpsEnabled(): Boolean {
+        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+    }
+
+    private fun startLocationUpdates() {
+        if (!isGpsEnabled()) {
+            Toast.makeText(this, "GPS를 켜야 속도 측정이 가능합니다.", Toast.LENGTH_LONG).show()
+            binding.speedTextView.text = "--"
+            return
+        }
+
+        if (ActivityCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        fusedLocationClient.requestLocationUpdates(
+            locationRequest,
+            locationCallback,
+            Looper.getMainLooper()
+        )
+    }
+
+    private fun stopLocationUpdates() {
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        startLocationUpdates()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopLocationUpdates()
     }
 
     private fun hideNavigationBar() {
@@ -396,33 +548,6 @@ class MainActivity2 : AppCompatActivity() {
         }
     }
 
-//    override fun onSensorDataChanged(accelData: FloatArray, linearAccel: FloatArray) {
-//        // 이 메서드는 Service에 의해 주기적으로 호출됩니다.
-//        // UI 업데이트는 반드시 메인 스레드에서 수행해야 합니다.
-//        if (linearAccel[2] <= -0.4) {
-//            Log.w("accelData", "급제동 감지 Z: %.2f".format(accelData[2]))
-//        } else if(accelData[1]<= 1.0){
-//            Log.w("accelData", "넘어짐 감지 Y(원본): %.2f".format(accelData[1]))
-//        }
-//
-//        runOnUiThread {
-//            binding.accelerate?.text = "X: %.2f  Y: %.2f  Z: %.2f".format(accelData[0], accelData[1], accelData[2])
-//            if(linearAccel[2]<=-0.4){
-//                binding.crash?.text = "급정거 감지 Z: %.2f".format(accelData[2])
-//            }else{
-//                binding.crash?.text = ""
-//            }
-//            if(accelData[1]<=2.0){
-//                // 기기 회전 시 원래 Y축 가속도 값은 0에 가까워짐
-//                binding.fallen?.text = "넘어짐 감지 Y: %.2f".format(accelData[1])
-//            }else{
-//                binding.fallen?.text = ""
-//            }
-//
-//
-//        }
-//    }
-
     private fun observeViewModel() {
         viewModel.isFlashOn.observe(this) { isOn ->
             updateFlashState(isOn)
@@ -560,6 +685,8 @@ class MainActivity2 : AppCompatActivity() {
         super.onDestroy()
         if (serviceBound) {
             //recordingService?.setSensorCallback(null) // 콜백 해제 추가
+            // ✅ 액티비티가 사라질 때 콜백 끊기
+            recordingService?.setPotholeListener(null)
             unbindService(serviceConnection)
             serviceBound = false
         }

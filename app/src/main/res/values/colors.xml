@@ -4,4 +4,7 @@
     <color name="white">#FFFFFFFF</color>
     <color name="intro_background">#A2A2A2</color>
     <color name="intro_background2">#FFDD2A</color>
+    <color name="pothole_bottomsheet_bg">#FFFFFF</color>
+    <color name="pothole_call_button">#45bb89</color>
+    <color name="red">#be2e22</color>
 </resources>

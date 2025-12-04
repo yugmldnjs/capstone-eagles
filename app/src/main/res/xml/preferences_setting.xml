@@ -56,6 +56,39 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="편의 설정"
+        app:iconSpaceReserved="false">
+
+        <SwitchPreferenceCompat
+            app:key="use_pothole_model"
+            app:title="포트홀 자동 탐지 사용"
+            app:summary="YOLO 모델로 포트홀을 자동 탐지하고 맵에 기록합니다."
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+        <SwitchPreferenceCompat
+            app:key="show_congestion"
+            app:title="혼잡도 표시"
+            app:summary="지도에 혼잡도 원(색깔 원)과 인원수 맵핀을 표시합니다."
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+        <SwitchPreferenceCompat
+            app:key="show_pothole_markers"
+            app:title="포트홀 맵핀 표시"
+            app:summary="기록된 포트홀 위치 맵핀을 지도에 표시합니다."
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+        <SwitchPreferenceCompat
+            app:key="enable_pothole_tts"
+            app:title="포트홀 음성 안내"
+            app:summary="포트홀 근접 시 및 새로운 포트홀이 기록될 때 음성으로 안내합니다."
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="저장 설정"
         app:iconSpaceReserved="false">
 

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@color/pothole_bottomsheet_bg">
+
+    <!-- ✅ 포트홀 사진 -->
+    <ImageView
+        android:id="@+id/iv_pothole_photo"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:layout_marginBottom="12dp"
+        android:scaleType="centerCrop"
+        android:adjustViewBounds="true"
+        android:contentDescription="@string/pothole_photo"
+        android:visibility="gone" />
+
+    <!-- 포트홀 위치 -->
+    <TextView
+        android:id="@+id/tv_pothole_info"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="포트홀 위치: 주소를 불러오는 중..."
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="@android:color/black" />
+
+    <!-- 관할 지자체 -->
+    <TextView
+        android:id="@+id/tv_office_info"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="관할 지자체: 확인 중..."
+        android:textSize="14sp"
+        android:textColor="@android:color/black" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="16dp" />
+
+    <!-- 지자체 전화 신고 버튼 -->
+    <Button
+        android:id="@+id/btn_call_office"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="지자체에 전화 신고"
+        android:backgroundTint="@color/pothole_call_button"
+        android:textColor="@android:color/white" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="8dp" />
+
+    <!-- 안전신문고 앱 이동 버튼 -->
+    <Button
+        android:id="@+id/btn_open_safety_app"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="안전신문고 앱에서 신고"
+        android:backgroundTint="@color/pothole_call_button"
+        android:textColor="@android:color/white" />
+
+</LinearLayout>
