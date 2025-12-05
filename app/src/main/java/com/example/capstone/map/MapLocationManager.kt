@@ -33,10 +33,10 @@ class MapLocationManager(
     private val locationRequest: LocationRequest =
         LocationRequest.Builder(
             Priority.PRIORITY_BALANCED_POWER_ACCURACY, // 기존 설정 그대로
-            5000L
+            1000L
         ).apply {
-            setMinUpdateDistanceMeters(5f)
-            setMinUpdateIntervalMillis(3000L)
+            setMinUpdateDistanceMeters(0f)
+            setMinUpdateIntervalMillis(500L)
             setWaitForAccurateLocation(false)
         }.build()
 
