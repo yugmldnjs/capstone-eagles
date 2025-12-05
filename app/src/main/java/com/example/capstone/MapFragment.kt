@@ -58,7 +58,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         // ✅ 포트홀 경고 조건
         private const val POTHOLE_ALERT_DISTANCE_METERS = 10.0   // 거리 20m
         private const val POTHOLE_ALERT_ANGLE_DEG = 60.0         // 진행 방향 ±60도 안쪽만
-        private const val POTHOLE_ALERT_INTERVAL_MS = 2000L    // 최소 10초 간격
+        private const val POTHOLE_ALERT_INTERVAL_MS = 10000L    // 최소 10초 간격
     }
 
     private val httpClient by lazy { OkHttpClient() }
@@ -102,7 +102,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     // 최근 경고 시간 + 이미 경고한 포트홀 ID
     private var lastPotholeAlertTime: Long = 0L
-    private val alertedPotholeIds = mutableSetOf<String>()
+    //private val alertedPotholeIds = mutableSetOf<String>()
 
     // 진행 방향 계산용 (직전 위치)
     private var prevLatForHeading: Double? = null
@@ -281,11 +281,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                 if (diff > POTHOLE_ALERT_ANGLE_DEG) continue
             }
 
-            // 같은 포트홀에 대해 한 번만 경고
-            val id = p.id
-            if (id != null && alertedPotholeIds.contains(id)) {
-                continue
-            }
+//            // 같은 포트홀에 대해 한 번만 경고
+//            val id = p.id
+//            if (id != null && alertedPotholeIds.contains(id)) {
+//                continue
+//            }
 
             if (dist < minDist) {
                 minDist = dist
@@ -293,9 +293,14 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             }
         }
 
+//        if (target != null) {
+//            lastPotholeAlertTime = now
+//            target.id?.let { alertedPotholeIds.add(it) }
+//            speakPotholeWarning()
+//        }
+
         if (target != null) {
             lastPotholeAlertTime = now
-            target.id?.let { alertedPotholeIds.add(it) }
             speakPotholeWarning()
         }
     }
