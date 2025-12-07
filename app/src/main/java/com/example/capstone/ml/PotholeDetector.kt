@@ -67,7 +67,7 @@ class PotholeDetector(
         private const val TAG = "PotholeDetector"
 
         // assets 안의 파일명 (필요하면 이름 맞게 수정)
-        private const val MODEL_FILE = "exp36_best_float16.tflite"
+        private const val MODEL_FILE = "best_float16.tflite"
         private const val LABEL_FILE = "labels.txt"
     }
 
