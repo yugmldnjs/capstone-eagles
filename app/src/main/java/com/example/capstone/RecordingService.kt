@@ -72,6 +72,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         // ★ TFLite 추론 간 최소 간격 (ms) – 필요시 조절
         private const val MIN_INFERENCE_INTERVAL_MS = 0L
 
+        private const val EVENT_SCORE_THRESHOLD = 0.6f
+        private const val EVENT_NEAR_Y = 0.3f
+
     }
 
     // 메인 스레드로 결과를 보내기 위한 핸들러
@@ -209,8 +212,8 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                 .maxByOrNull { it.score }
 
             if (bestNewTrack != null &&
-                bestNewTrack.score >= 0.6f &&   // 신뢰도 조건
-                bestNewTrack.bbox[1] >= 0.4f    // 화면 아래쪽(0.4 이상)에서만
+                bestNewTrack.score >= EVENT_SCORE_THRESHOLD &&   // 신뢰도 조건
+                bestNewTrack.bbox[1] >= EVENT_NEAR_Y    // 화면 아래쪽에서만
             ) {
                 hasNewPotholeEvent = true
             }

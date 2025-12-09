@@ -44,9 +44,10 @@ import android.os.Environment
 import android.widget.Toast
 import com.bumptech.glide.request.target.CustomTarget
 import com.bumptech.glide.request.transition.Transition
-import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioManager
+import com.naver.maps.map.util.FusedLocationSource
+import com.naver.maps.map.LocationTrackingMode
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
@@ -55,9 +56,9 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         private const val REQ_LOCATION = 1000
 
         // ✅ 포트홀 경고 조건
-        private const val POTHOLE_ALERT_DISTANCE_METERS = 20.0   // 거리 20m
+        private const val POTHOLE_ALERT_DISTANCE_METERS = 10.0   // 거리 20m
         private const val POTHOLE_ALERT_ANGLE_DEG = 60.0         // 진행 방향 ±60도 안쪽만
-        private const val POTHOLE_ALERT_INTERVAL_MS = 10_000L    // 최소 10초 간격
+        private const val POTHOLE_ALERT_INTERVAL_MS = 10000L    // 최소 10초 간격
     }
 
     private val httpClient by lazy { OkHttpClient() }
@@ -78,6 +79,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     private lateinit var naverMap: NaverMap
     private lateinit var mapView: MapView
+    private lateinit var locationSource: FusedLocationSource
 
     private lateinit var locationManager: MapLocationManager
     private lateinit var congestionManager: CongestionOverlayManager
@@ -100,7 +102,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
     // 최근 경고 시간 + 이미 경고한 포트홀 ID
     private var lastPotholeAlertTime: Long = 0L
-    private val alertedPotholeIds = mutableSetOf<String>()
+    //private val alertedPotholeIds = mutableSetOf<String>()
 
     // 진행 방향 계산용 (직전 위치)
     private var prevLatForHeading: Double? = null
@@ -122,6 +124,9 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         mapView = view.findViewById(R.id.map_view)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
+
+        // 👉 네이버 지도 SDK용 위치 소스 (현위치 + 방향)
+        locationSource = FusedLocationSource(this, REQ_LOCATION)
 
         // 2) 커스텀 현위치 버튼
         setupRecenterButton(view)  // 아래에 함수 하나 새로 뺄 것
@@ -160,18 +165,33 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             setImageResource(android.R.drawable.ic_menu_mylocation)
             background = ContextCompat.getDrawable(requireContext(), R.drawable.round_button_bg)
             setPadding((12 * resources.displayMetrics.density).toInt())
-            contentDescription = "현위치로 이동"
+            contentDescription = "현위치/모드 전환"
 
             setOnClickListener {
-                followMyLocation = true
+                // 지도/권한 체크
+                if (!isMapReady || !hasLocationPermission()) return@setOnClickListener
 
                 val lat = locationManager.lastLat
                 val lon = locationManager.lastLon
 
-                if (lat != null && lon != null && isMapReady) {
+                // 1) 버튼 누를 때마다 모드 순환
+                val current = naverMap.locationTrackingMode
+                val next = when (current) {
+                    LocationTrackingMode.None,
+                    LocationTrackingMode.NoFollow -> LocationTrackingMode.Follow   // 1단계: Follow
+                    LocationTrackingMode.Follow -> LocationTrackingMode.Face        // 2단계: Face
+                    LocationTrackingMode.Face -> LocationTrackingMode.NoFollow      // 3단계: NoFollow
+                    else -> LocationTrackingMode.Follow
+                }
+
+                // 2) 카메라는 내 위치로 한번 옮겨주고
+                if (lat != null && lon != null) {
                     try {
                         isProgrammaticMove = true
-                        val cameraPosition = CameraPosition(LatLng(lat, lon), 15.0)
+                        val cameraPosition = CameraPosition(
+                            LatLng(lat, lon),
+                            15.0
+                        )
                         val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
                             .animate(CameraAnimation.Easing)
                         naverMap.moveCamera(cameraUpdate)
@@ -179,6 +199,15 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                         Log.e(TAG, "버튼으로 위치 이동 실패", e)
                     }
                 }
+
+                // 3) 모드 실제 적용
+                naverMap.locationTrackingMode = next
+
+                // 우리 플래그도 모드에 맞춰 정리 (Follow/Face일 때만 true)
+                followMyLocation = next == LocationTrackingMode.Follow ||
+                        next == LocationTrackingMode.Face
+
+                Log.d(TAG, "현위치 버튼: $current -> $next")
             }
         }
 
@@ -189,6 +218,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         }
         container.addView(recenterBtn, recenterParams)
     }
+
     private fun onLocationUpdatedFromManager(lat: Double, lon: Double) {
         if (!isMapReady) return
 
@@ -204,24 +234,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         prevLatForHeading = lat
         prevLonForHeading = lon
 
-        // 2) 네이버 기본 오버레이 업데이트
-        updateMyLocationMarker(lat, lon)
-
+        // ✅ 2) 카메라 / 현위치 오버레이 이동은 네이버 SDK(Follow 모드)에 맡김
+        //    여기서 moveCamera를 호출하면 Follow → NoFollow로 떨어져서
+        //    화살표가 바로 사라진다.
         if (isFirstLocation) {
             isFirstLocation = false
-            followMyLocation = true
-
-            isProgrammaticMove = true
-            val cameraPosition = CameraPosition(LatLng(lat, lon), 15.0)
-            val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
-            naverMap.moveCamera(cameraUpdate)
-        }
-
-        if (followMyLocation) {
-            isProgrammaticMove = true
-            val cameraUpdate = CameraUpdate.scrollTo(LatLng(lat, lon))
-                .animate(CameraAnimation.Easing)
-            naverMap.moveCamera(cameraUpdate)
         }
 
         // ✅ 3) 포트홀 TTS 경고 체크
@@ -264,11 +281,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                 if (diff > POTHOLE_ALERT_ANGLE_DEG) continue
             }
 
-            // 같은 포트홀에 대해 한 번만 경고
-            val id = p.id
-            if (id != null && alertedPotholeIds.contains(id)) {
-                continue
-            }
+//            // 같은 포트홀에 대해 한 번만 경고
+//            val id = p.id
+//            if (id != null && alertedPotholeIds.contains(id)) {
+//                continue
+//            }
 
             if (dist < minDist) {
                 minDist = dist
@@ -276,9 +293,14 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             }
         }
 
+//        if (target != null) {
+//            lastPotholeAlertTime = now
+//            target.id?.let { alertedPotholeIds.add(it) }
+//            speakPotholeWarning()
+//        }
+
         if (target != null) {
             lastPotholeAlertTime = now
-            target.id?.let { alertedPotholeIds.add(it) }
             speakPotholeWarning()
         }
     }
@@ -310,6 +332,21 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         isMapReady = true
         Log.d(TAG, "NaverMap 초기화 완료")
 
+        // ✅ 1) 위치 소스 연결
+        naverMap.locationSource = locationSource
+
+        // ✅ 2) 나침반(센서) 켜기 → 폰을 돌리면 방향값 들어오도록
+        //    (항상 켜도 되고, 아래처럼 모드에 따라 on/off 해도 됨)
+        locationSource.setCompassEnabled(true)
+
+//        // 모드가 바뀔 때마다 센서 on/off 관리 (권장 패턴)
+//        naverMap.addOnOptionChangeListener {
+//            val mode = naverMap.locationTrackingMode
+//            val useCompass = mode == LocationTrackingMode.Follow ||
+//                    mode == LocationTrackingMode.Face
+//            locationSource.setCompassEnabled(useCompass)
+//        }
+
         // 지도 설정
         naverMap.apply {
             // 줌 레벨 설정
@@ -339,27 +376,20 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                 isLocationButtonEnabled = false // 커스텀 현위치 버튼 사용
             }
 
-            // ✅ 지도 터치 시 자동 추적 해제
             addOnCameraChangeListener { _, _ ->
-                // 프로그래밍 방식 이동이 아니면 사용자가 터치한 것
-                if (!isProgrammaticMove && followMyLocation) {
+                val mode = naverMap.locationTrackingMode
+                val isFromLocationTracking =
+                    mode == LocationTrackingMode.Follow || mode == LocationTrackingMode.Face
+
+                // 프로그래밍 이동도 아니고, 위치 추적에 의한 이동도 아니면 → 사용자가 직접 움직인 것
+                if (!isProgrammaticMove && !isFromLocationTracking && followMyLocation) {
                     followMyLocation = false
+                    if (mode != LocationTrackingMode.NoFollow && mode != LocationTrackingMode.None) {
+                        naverMap.locationTrackingMode = LocationTrackingMode.NoFollow
+                    }
                     Log.d(TAG, "지도 터치: 자동 추적 해제")
                 }
                 isProgrammaticMove = false
-            }
-        }
-
-        // 현재 위치가 이미 있으면 오버레이/카메라 맞춰주기
-        locationManager.lastLat?.let { lat ->
-            locationManager.lastLon?.let { lon ->
-                updateMyLocationMarker(lat, lon)
-                if (followMyLocation) {
-                    isProgrammaticMove = true
-                    val cameraUpdate = CameraUpdate.scrollTo(LatLng(lat, lon))
-                    naverMap.moveCamera(cameraUpdate)
-                }
-                Log.d(TAG, "지도 초기화 후 위치 설정 완료")
             }
         }
 
@@ -399,6 +429,11 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         naverMap.setOnMapClickListener { _, _ ->
             potholeManager.closeInfoWindow()
+        }
+
+        // ✅ 모든 지도 세팅이 끝난 후, 위치 권한이 있으면 추적 모드(Follow) 활성화
+        if (hasLocationPermission()) {
+            naverMap.locationTrackingMode = LocationTrackingMode.Follow
         }
     }
 
@@ -699,20 +734,6 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         }.start()
     }
 
-    /**
-     * ✅ 네이버 지도 기본 현위치 오버레이 업데이트
-     */
-    private fun updateMyLocationMarker(lat: Double, lon: Double) {
-        try {
-            naverMap.locationOverlay.apply {
-                position = LatLng(lat, lon)
-                isVisible = true
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "내 위치 오버레이 업데이트 실패", e)
-        }
-    }
-
     fun addPotholeFromCurrentLocationFromModel(
         photoBitmap: Bitmap?
     ): Boolean {
@@ -854,7 +875,19 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             grantResults.isNotEmpty() &&
             grantResults.any { it == PackageManager.PERMISSION_GRANTED }
         ) {
+            // 1) 우리 쪽 위치 업데이트 (Firestore, 포트홀 로직 등)
             startLocationUpdates()
+
+            // 2) 네이버 지도 SDK FusedLocationSource에도 권한 결과 전달
+            if (this::locationSource.isInitialized) {
+                locationSource.onRequestPermissionsResult(requestCode, permissions, grantResults)
+            }
+
+            // 3) 지도 준비된 상태라면 위치 추적 모드 활성화
+            if (this::naverMap.isInitialized) {
+                naverMap.locationTrackingMode = LocationTrackingMode.Follow
+                // 지도까지 같이 돌리고 싶으면 여기도 Face로 바꾸면 됨
+            }
         }
     }
 }

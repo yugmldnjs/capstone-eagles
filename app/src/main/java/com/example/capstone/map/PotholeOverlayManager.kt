@@ -27,7 +27,7 @@ class PotholeOverlayManager(
 
     companion object {
         private const val TAG = "PotholeOverlayMgr"
-        private const val MIN_POTHOLE_EVENT_INTERVAL_MS = 2000L
+        private const val MIN_POTHOLE_EVENT_INTERVAL_MS = 500L
         private const val EXISTING_PIN_DISTANCE_METERS = 5.0
     }
 
