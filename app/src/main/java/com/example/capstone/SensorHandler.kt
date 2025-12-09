@@ -8,7 +8,7 @@ import android.hardware.SensorManager
 import android.util.Log
 import kotlin.math.sqrt
 
-class SensorHandler(context: Context, private var listener: ImpactListener?) : SensorEventListener {
+class SensorHandler(context: Context, private var listener: EventListener?) : SensorEventListener {
 
     companion object {
         private const val TAG = "SensorHandler"
@@ -17,18 +17,13 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
         private const val GRAVITY_ALPHA = 0.9f  // Low-pass filter (높을수록 부드러움)
         private const val ACCEL_NOISE_THRESHOLD = 0.5f  // 노이즈 임계값 (m/s²)
 
-        // ✅ 급정거 감지 임계값
-        private const val SUDDEN_BRAKE_THRESHOLD = 10.0f  // 급정거 임계값 (m/s²)
-        private const val SUDDEN_BRAKE_DURATION = 800L  // 급정거 지속 시간 (ms)
-
-        // ✅ 충격 감지 임계값
-        private const val IMPACT_THRESHOLD = 20.0f  // 충격 임계값 (m/s²)
-
         // ✅ 쿨다운 시간 설정
         private const val COOLDOWN_MS = 2000L  // 2초
 
         // ✅ Moving Average 필터 윈도우 크기
         private const val MOVING_AVG_WINDOW = 5
+        // ✅ 자이로 로그 최소 간격 (너무 많이 찍히는 걸 방지용)
+        private const val GYRO_LOG_INTERVAL_MS = 200L   // 0.2초마다 한 번 정도
     }
 
     // 센서 관리자
@@ -45,14 +40,11 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
     private val accelBufferX = ArrayDeque<Float>(MOVING_AVG_WINDOW)
     private val accelBufferY = ArrayDeque<Float>(MOVING_AVG_WINDOW)
     private val accelBufferZ = ArrayDeque<Float>(MOVING_AVG_WINDOW)
-
-    // ✅ 급정거 감지용 변수
-    private var suddenBrakeStartTime = 0L
-    private var isBraking = false
-
     // ✅ 마지막 이벤트 감지 시간
     private var lastImpactTime = 0L
-    private var lastBrakeTime = 0L
+
+    // ✅ 마지막 자이로 로그 시각
+    private var lastGyroLogTime = 0L
 
     init {
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -142,11 +134,6 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
                     linearAccel[2] * linearAccel[2]
         )
 
-        // 7️⃣ 급정거 감지 (수평 방향 감속)
-        detectSuddenBrake(horizontalAccel)
-
-        // 8️⃣ 충격 감지 (모든 방향 포함)
-        detectImpact(totalAccel)
     }
 
     /**
@@ -166,69 +153,6 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
     }
 
     /**
-     * ✅ 급정거 감지 (수평 방향 감속)
-     */
-    private fun detectSuddenBrake(horizontalAccel: Float) {
-        val currentTime = System.currentTimeMillis()
-        var logmsg : String
-        if (horizontalAccel > SUDDEN_BRAKE_THRESHOLD) {
-
-
-            // 급정거 시작
-            if (!isBraking) {
-                isBraking = true
-                suddenBrakeStartTime = currentTime
-                logmsg = "🛑 급정거 시작 감지: ${String.format("%.2f", horizontalAccel)} m/s²"
-                Log.d(TAG, "🛑 급정거 시작 감지: ${String.format("%.2f", horizontalAccel)} m/s²")
-                LogToFileHelper.writeLog("============================================")
-                LogToFileHelper.writeLog(logmsg)
-            }
-
-            // 급정거 지속 시간 체크
-            val duration = currentTime - suddenBrakeStartTime
-            if (duration >= SUDDEN_BRAKE_DURATION &&
-                currentTime - lastBrakeTime >= COOLDOWN_MS) {
-
-                lastBrakeTime = currentTime
-                listener?.onSuddenBrakeDetected(linearAccel.clone(), horizontalAccel)
-                logmsg = "🛑 급정거 확정! 지속시간: ${duration}ms, 가속도: ${String.format("%.2f", horizontalAccel)} m/s²"
-                Log.d(TAG, "🛑 급정거 확정! 지속시간: ${duration}ms, 가속도: ${String.format("%.2f", horizontalAccel)} m/s²")
-                LogToFileHelper.writeLog(logmsg)
-            }
-        } else {
-            // 급정거 종료
-            if (isBraking) {
-                val duration = currentTime - suddenBrakeStartTime
-                logmsg = "🟢 급정거 종료 (지속시간: ${duration}ms)"
-                Log.d(TAG, "🟢 급정거 종료 (지속시간: ${duration}ms)")
-                LogToFileHelper.writeLog(logmsg)
-
-
-
-            }
-            isBraking = false
-        }
-    }
-
-    /**
-     * ✅ 충격 감지 (모든 방향)
-     */
-    private fun detectImpact(totalAccel: Float) {
-        if (totalAccel > IMPACT_THRESHOLD) {
-            val currentTime = System.currentTimeMillis()
-
-            if (currentTime - lastImpactTime >= COOLDOWN_MS) {
-                lastImpactTime = currentTime
-                listener?.onImpactDetected(linearAccel.clone(), totalAccel)
-                Log.d(TAG, "⚡ 충격 감지! 가속도: ${String.format("%.2f", totalAccel)} m/s²")
-            } else {
-                val remainingTime = COOLDOWN_MS - (currentTime - lastImpactTime)
-                Log.d(TAG, "🔇 충격 쿨다운 중... (${remainingTime}ms 남음)")
-            }
-        }
-    }
-
-    /**
      * 자이로스코프 데이터 처리
      */
     private fun processGyroscope(event: SensorEvent) {
@@ -243,12 +167,35 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
                     rotationZ * rotationZ
         )
 
+        // ✅ 자이로 샘플 로그 (낙차 튜닝용)
+        val now = System.currentTimeMillis()
+        if (now - lastGyroLogTime >= GYRO_LOG_INTERVAL_MS) {
+            lastGyroLogTime = now
+
+            LogToFileHelper.writeLog(
+                "GYRO, " +
+                        "x=${"%.2f".format(rotationX)}°/s, " +
+                        "y=${"%.2f".format(rotationY)}°/s, " +
+                        "z=${"%.2f".format(rotationZ)}°/s, " +
+                        "total=${"%.2f".format(totalRotation)}°/s"
+            )
+        }
+
+
         // 급격한 회전 감지 (낙상 가능성)
         if (totalRotation > 200.0f) {
             val currentTime = System.currentTimeMillis()
             if (currentTime - lastImpactTime >= COOLDOWN_MS) {
                 lastImpactTime = currentTime
-                listener?.onFallDetected(floatArrayOf(rotationX, rotationY, rotationZ), totalRotation)
+                // ✅ 낙상 의심 값 별도 로그
+                LogToFileHelper.writeLog(
+                    "FALL_CANDIDATE, " +
+                            "total=${"%.2f".format(totalRotation)}°/s, " +
+                            "x=${"%.2f".format(rotationX)}, " +
+                            "y=${"%.2f".format(rotationY)}, " +
+                            "z=${"%.2f".format(rotationZ)}"
+                )
+                listener?.onEventDetected(linearAccel.clone(), floatArrayOf(rotationX, rotationY, rotationZ), "FALL")
                 Log.d(TAG, "🤕 낙상 의심! 회전: ${String.format("%.2f", totalRotation)}°/s")
             }
         }
@@ -268,29 +215,9 @@ class SensorHandler(context: Context, private var listener: ImpactListener?) : S
     }
 
     /**
-     * 리스너 업데이트
-     */
-    fun setListener(listener: ImpactListener) {
-        this.listener = listener
-    }
-
-    /**
      * ✅ 이벤트 리스너 인터페이스
      */
-    interface ImpactListener {
-        /**
-         * 충격 감지 (과속방지턱, 도로 요철 등)
-         */
-        fun onImpactDetected(linearAccel: FloatArray, totalAccel: Float)
-
-        /**
-         * 급정거 감지
-         */
-        fun onSuddenBrakeDetected(linearAccel: FloatArray, horizontalAccel: Float)
-
-        /**
-         * 낙상 감지 (급격한 회전)
-         */
-        fun onFallDetected(rotation: FloatArray, totalRotation: Float)
+    interface EventListener {
+        fun onEventDetected(linearAccel: FloatArray, rotation: FloatArray, eventType: String)
     }
 }
