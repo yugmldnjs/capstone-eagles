@@ -56,7 +56,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         private const val REQ_LOCATION = 1000
 
         // ✅ 포트홀 경고 조건
-        private const val POTHOLE_ALERT_DISTANCE_METERS = 10.0   // 거리 20m
+        private const val POTHOLE_ALERT_DISTANCE_METERS = 10.0   // 거리 10m
         private const val POTHOLE_ALERT_ANGLE_DEG = 60.0         // 진행 방향 ±60도 안쪽만
         private const val POTHOLE_ALERT_INTERVAL_MS = 10000L    // 최소 10초 간격
     }
@@ -320,7 +320,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         }
 
         ttsEngine.speak(
-            "포트홀을 주의하세요",
+            "근처의 포트홀을 주의하세요",
             TextToSpeech.QUEUE_ADD,
             params,
             "POTHOLE_WARNING"
@@ -850,7 +850,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         tts?.stop()
         tts?.shutdown()
         tts = null
-        alertedPotholeIds.clear()
+        //alertedPotholeIds.clear()
         prevLatForHeading = null
         prevLonForHeading = null
         lastHeadingDeg = null
