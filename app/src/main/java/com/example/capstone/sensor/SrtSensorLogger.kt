@@ -1,6 +1,5 @@
 package com.example.capstone.sensor
 
-import android.content.Context
 import android.location.Location
 import android.util.Log
 import com.example.capstone.utils.LocationUtils
@@ -19,14 +18,12 @@ class SrtSensorLogger(private val videoStartTime: Long) {
     private var lastEntryEndTime = 0L
 
     // 실제 타임스탬프 포맷을 위한 Formatter 추가
-    private val timestampFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.KOREA)
+    private val timestampFormatter = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.KOREA)
 
     /**
      * 센서 데이터를 SRT 형식으로 기록 (1초 간격)
      */
-    @Synchronized
     fun logSensorData(
-        context: Context,
         location: Location,
         speed: Float, // km/h
     ) {
@@ -48,20 +45,30 @@ class SrtSensorLogger(private val videoStartTime: Long) {
         val startTimeFormatted = formatSrtTime(startTimeMs)
         val endTimeFormatted = formatSrtTime(endTimeMs)
         val currentTimestamp = timestampFormatter.format(java.util.Date(currentTime))
-        val address = LocationUtils.getAddressFromLocation( context, location.latitude, location.longitude)
 
-        srtBuilder.append("$sequenceNumber\n")
-        srtBuilder.append("$startTimeFormatted --> $endTimeFormatted\n")
-        srtBuilder.append("$currentTimestamp    ")
-        srtBuilder.append("${String.format("%.1f", speed)} km/h\n")
-        srtBuilder.append("$address\n")
-//        srtBuilder.append("${formatCoordinate(location.latitude)}, ${formatCoordinate(location.longitude)}\n")
-        srtBuilder.append("\n")
+        // 주소를 비동기로 받아와서, 콜백에서 SRT에 기록
+        LocationUtils.getAddressFromLocation(
+            latitude = location.latitude,
+            longitude = location.longitude
+        ) { result ->
+            val address = result ?: "위치 정보 없음"
+            Log.d(TAG, "주소: $address")
 
-        Log.d(TAG, "✅ SRT 엔트리 추가: #$sequenceNumber at ${relativeTimeMs}ms")
+            // 여러 스레드에서 동시에 들어올 수 있으니 append 부분은 동기화
+            synchronized(this) {
+                srtBuilder.append("$sequenceNumber\n")
+                srtBuilder.append("$startTimeFormatted --> $endTimeFormatted\n")
+                srtBuilder.append("$currentTimestamp    ")
+                srtBuilder.append("${String.format(Locale.KOREA, "%.1f", speed)} km/h\n")
+                srtBuilder.append("$address\n")
+                srtBuilder.append("\n")
 
-        sequenceNumber++
-        lastEntryEndTime = endTimeMs
+                Log.d(TAG, "✅ SRT 엔트리 추가: #$sequenceNumber at ${relativeTimeMs}ms")
+
+                sequenceNumber++
+                lastEntryEndTime = endTimeMs
+            }
+        }
     }
 
     /**

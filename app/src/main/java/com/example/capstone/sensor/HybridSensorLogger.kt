@@ -1,6 +1,5 @@
 package com.example.capstone.sensor
 
-import android.content.Context
 import android.location.Location
 import android.util.Log
 import com.example.capstone.database.EventDao
@@ -32,12 +31,11 @@ class HybridSensorLogger(
      * 실시간 센서 데이터 기록 (SRT용, 1초 간격)
      */
     fun logSensorData(
-        context: Context,
         location: Location,
         speed: Float, // km/h
 
     ) {
-        srtLogger.logSensorData(context, location, speed)
+        srtLogger.logSensorData(location, speed)
     }
 
     /**
