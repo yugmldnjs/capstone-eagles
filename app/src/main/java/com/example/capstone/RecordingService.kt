@@ -59,7 +59,6 @@ import android.graphics.Bitmap
 import android.speech.tts.TextToSpeech
 import android.media.AudioAttributes
 import android.os.Bundle
-
 class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener {
 
     companion object {
@@ -77,6 +76,13 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
 
         private const val EVENT_SCORE_THRESHOLD = 0.6f
         private const val EVENT_NEAR_Y = 0.3f
+        // GPS 기반 급정거 감지 파라미터 (속도 단위: km/h)
+        private const val GPS_BRAKE_MIN_SPEED_KMH = 5.0f          // 이 속도 이상에서만 급정거 판단
+        private const val GPS_BRAKE_DROP_THRESHOLD_KMH = 8.0f     // Δv 가 이 값 이상이면 급정거
+        private const val GPS_BRAKE_TIME_WINDOW_MS = 1500L        // 이 시간 안에 일어난 속도 감소만 인정
+        private const val FALL_THRESHOLD_SPEED_KMH = 5.0f
+        private const val FALL_THRESHOLD_DEG = 190.0f
+        private const val EVENT_COOL_DOWN_MS = 15000L
 
     }
 
@@ -123,6 +129,8 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
     var currentSpeed: Float = 0f
     private var lastImpactTimestamp: Long = 0
     private lateinit var eventDao: EventDao
+    private var lastSpeedKmh: Float? = null
+    private var lastSpeedTimestamp: Long = 0L
 
     private var imageAnalysis: ImageAnalysis? = null
 
@@ -292,8 +300,15 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         override fun onLocationResult(result: LocationResult) {
             result.lastLocation?.let { location ->
                 currentLocation = location
-                currentSpeed = if(location.speed * 3.6f > 1.0) location.speed * 3.6f else 0.0f // m/s -> km/h
+                currentSpeed = if(location.speed * 3.6f > 1.0f) location.speed * 3.6f else 0.0f // m/s -> km/h
 
+//                LogToFileHelper.writeLog(
+//                    "LOC, speed=${"%.1f".format(currentSpeed)} km/h, " +
+//                            "lat=${location.latitude}, lon=${location.longitude}"
+//                )
+
+                val now = System.currentTimeMillis()
+                detectGpsSuddenBrake(currentSpeed, now)
                 Log.d(TAG, "📍 위치 업데이트: ${location.latitude}, ${location.longitude}")
             }
         }
@@ -433,16 +448,32 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         currentPreview = preview
         Log.d(TAG, "Single preview created")
 
-        // 2) VideoCapture (기존 코드 유지)
-        if (videoCapture == null) {
-            val recorder = Recorder.Builder()
-                .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
-                .build()
-            videoCapture = VideoCapture.withOutput(recorder)
-            Log.d(TAG, "VideoCapture created")
-        } else {
-            Log.d(TAG, "VideoCapture already exists")
+        // 2) VideoCapture
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        val resValue = prefs.getString("resolution", "720")
+
+        // 해상도별 Quality + Bitrate 설정
+        val (targetQuality, targetBitrate) = when (resValue) {
+            "1080" -> Quality.FHD to (6 * 1024 * 1024)   // 6 Mbps
+            "720"  -> Quality.HD  to (3 * 1024 * 1024)   // 3 Mbps
+            "480"  -> Quality.SD  to (1.5 * 1024 * 1024).toInt() // 1.5 Mbps
+            else   -> Quality.HD  to (3 * 1024 * 1024)
         }
+
+        Log.d(TAG, "설정된 해상도: $resValue, 비트레이트: ${targetBitrate / 1024 / 1024} Mbps")
+
+        val recorder = Recorder.Builder()
+            .setQualitySelector(
+                QualitySelector.from(
+                    targetQuality,
+                    FallbackStrategy.lowerQualityOrHigherThan(targetQuality)
+                )
+            )
+            .setTargetVideoEncodingBitRate(targetBitrate)
+            .build()
+
+        videoCapture = VideoCapture.withOutput(recorder)
+
 
         // 3) ImageAnalysis (포트홀 감지용)
         val detector = potholeDetector
@@ -605,8 +636,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
             parentFile?.mkdirs()
         }
 
-
-
         val fileOutputOptions = FileOutputOptions.Builder(currentRecordingFile!!)
             .apply {
                 if (currentLocation != null) {
@@ -619,7 +648,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
             this,
             Manifest.permission.RECORD_AUDIO
         )
-
 
         Log.d(
             TAG,
@@ -661,10 +689,11 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                             try {
                                 val locationRequest = LocationRequest.Builder(
                                     Priority.PRIORITY_HIGH_ACCURACY,
-                                    1000L // 1초 간격
+                                    500L // 1초 간격
                                 ).apply {
                                     setMinUpdateIntervalMillis(500L)
-                                    setMaxUpdateDelayMillis(2000L)
+                                    setMaxUpdateDelayMillis(1000L)
+                                    setMinUpdateDistanceMeters(0f)
                                 }.build()
 
                                 fusedLocationClient.requestLocationUpdates(
@@ -731,16 +760,14 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                         // 센서 데이터 기록
                         hybridLogger?.logSensorData(
                             location = location,
-                            speed = currentSpeed,
-//                            accelerometer = currentAccelerometer.clone(),
-//                            gyroscope = currentGyroscope.clone()
+                            speed = currentSpeed
                         )
 
                         Log.d(TAG, "✅ SRT 로그 기록 (타이머)")
                     } else {
                         hybridLogger?.logSensorData(
                             location = Location("null"),
-                            speed = 0.0f,)
+                            speed = 0.0f)
                         Log.w(TAG, "⚠️ 위치 정보 없음 (GPS 대기 중)")
                     }
                 }
@@ -846,23 +873,75 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         manager.notify(NOTIFICATION_ID, notification)
     }
 
-    override fun onEventDetected(linearAccel: FloatArray, rotation: FloatArray, eventType: String) {
+    // GPS 속도를 이용한 급정거 판단
+    private fun detectGpsSuddenBrake(newSpeedKmh: Float, now: Long) {
+        val prevSpeed = lastSpeedKmh
+        val prevTime = lastSpeedTimestamp
+
+        if (prevSpeed != null && prevTime > 0L) {
+            val dt = now - prevTime
+            if (dt in 1..GPS_BRAKE_TIME_WINDOW_MS) {
+                val speedDrop = prevSpeed - newSpeedKmh   // 양수일 때 감속
+                // 📌 3-1) 매 샘플마다 속도 변화 로그
+//                LogToFileHelper.writeLog(
+//                    "DV, prev=${"%.1f".format(prevSpeed)} km/h, " +
+//                            "now=${"%.1f".format(newSpeedKmh)} km/h, " +
+//                            "drop=${"%.1f".format(speedDrop)} km/h, dt=${dt} ms"
+//                )
+
+                if (prevSpeed >= GPS_BRAKE_MIN_SPEED_KMH &&
+                    speedDrop >= GPS_BRAKE_DROP_THRESHOLD_KMH
+                ) {
+                    Log.d(
+                        TAG,
+                        "🛑 GPS 급정거 감지: prev=${"%.1f".format(prevSpeed)}," +
+                                " now=${"%.1f".format(newSpeedKmh)}," +
+                                " drop=${"%.1f".format(speedDrop)} km/h, dt=${dt}ms"
+                    )
+
+                    // 📌 3-2) 급정거로 최종 판정된 순간 로그
+//                    LogToFileHelper.writeLog(
+//                        "BRAKE, *** DETECTED ***, " +
+//                                "prev=${"%.1f".format(prevSpeed)} km/h, " +
+//                                "now=${"%.1f".format(newSpeedKmh)} km/h, " +
+//                                "drop=${"%.1f".format(speedDrop)} km/h, dt=${dt} ms"
+//                    )
+
+                    // 기존 센서 이벤트와 동일 경로로 저장 + 30초 쿨다운 적용
+                    onEventDetected(currentLocation, newSpeedKmh, "SUDDEN_BRAKE")
+                }
+            }
+        }
+
+        // 마지막 속도/시간 갱신
+        lastSpeedKmh = newSpeedKmh
+        lastSpeedTimestamp = now
+    }
+
+
+    override fun onFallCandidate(rotation: Float) {
+        val speed = currentSpeed
+        if (rotation > FALL_THRESHOLD_DEG || speed < FALL_THRESHOLD_SPEED_KMH){
+            return onEventDetected(currentLocation, speed,"FALL")
+        }
+    }
+
+    private fun onEventDetected(location: Location?, speed: Float, eventType: String) {
         val timestamp = System.currentTimeMillis()
-        if (timestamp - lastImpactTimestamp < 30000) {
+        if (timestamp - lastImpactTimestamp < EVENT_COOL_DOWN_MS) {
             Log.d(TAG, "쿨다운 시간 내의 중복 충격 감지. 무시합니다.")
             return
         }
         lastImpactTimestamp = timestamp // 마지막 충격 시간 갱신
 
-        createAndSaveEvent(timestamp, currentLocation, linearAccel, rotation, eventType)
+        createAndSaveEvent(timestamp, location, speed, eventType)
     }
 
     // EventEntity를 생성하고 저장하는 헬퍼 함수 (코드 중복 방지)
     private fun createAndSaveEvent(
         timestamp: Long,
         location: Location?,
-        accelData: FloatArray,
-        gyroData: FloatArray?,
+        speed: Float,
         eventType: String
     ) {
         Log.d(TAG, "location: ${location?.latitude}, ${location?.longitude}")
@@ -873,13 +952,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
             type = eventType.lowercase(),
             latitude = location?.latitude,
             longitude = location?.longitude,
-            speed = currentSpeed,
-            accelerometerX = accelData[0],
-            accelerometerY = accelData[1],
-            accelerometerZ = accelData[2],
-            gyroX = gyroData?.get(0),
-            gyroY = gyroData?.get(1),
-            gyroZ = gyroData?.get(2),
+            speed = speed,
             videoFilePath = currentRecordingFile?.absolutePath,
             extractedVideoPath = null,
             status = "pending"

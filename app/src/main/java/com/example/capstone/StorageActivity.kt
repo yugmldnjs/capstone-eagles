@@ -32,6 +32,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withContext
 
 data class VideoItem(
     val videoPath: String,
@@ -66,12 +69,10 @@ class StorageActivity : AppCompatActivity() {
             }
         })
         setupRecyclerView()
-        lifecycleScope.launch {
-            // suspend 함수들을 순차적으로 호출
+        lifecycleScope.launch(Dispatchers.IO) {
             loadVideosFromStorage(fullVideoList, "recordings")
             loadVideosFromStorage(eventVideoList, "Events")
 
-            // 모든 로딩이 끝나면 메인 스레드에서 UI 업데이트
             withContext(Dispatchers.Main) {
                 selectFullVideoTab()
                 storageAdapter.updateList(fullVideoList)
@@ -142,20 +143,30 @@ class StorageActivity : AppCompatActivity() {
                             or android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
                     )
         }}
-    private suspend fun loadVideosFromStorage(videoList: MutableList<VideoItem>, dir: String) {
+    private suspend fun loadVideosFromStorage(videoList: MutableList<VideoItem>, dir: String) = withContext(Dispatchers.IO) {
+        // 1. 리스트 초기화
         videoList.clear()
-        Log.d("StorageActivity", "dir: $dir==============================")
+        Log.d("StorageActivity", "dir: $dir Loading started...")
 
-        // 1. 폴더에서 영상 불러오기
+        // 2. 파일 목록 가져오기
         val videoDir = getExternalFilesDir(dir)
-        if (videoDir != null && videoDir.exists()) {
-            val videoFiles =
-                videoDir.listFiles { file -> file.isFile && file.extension == "mp4" }
-            videoFiles?.sortByDescending { it.lastModified() } // 최신 순으로 정렬
 
-            videoFiles?.forEach { file ->
-                val videoItem = createVideoItemFromFile(file)
-                if (videoItem != null) {
+        if (videoDir != null && videoDir.exists()) {
+            val videoFiles = videoDir.listFiles { file -> file.isFile && file.extension == "mp4" }
+            videoFiles?.sortByDescending { it.lastModified() }
+
+            if (videoFiles != null) {
+                val deferredList = videoFiles.map { file: File ->
+                    async {
+                        createVideoItemFromFile(file)
+                    }
+                }
+
+                // 모든 비동기 작업이 끝날 때까지 대기 (병렬 처리 결과 수집)
+                val results = deferredList.awaitAll()
+
+                // 결과가 null이 아닌 것만 리스트에 추가
+                results.filterNotNull().forEach { videoItem ->
                     videoList.add(videoItem)
                 }
             }

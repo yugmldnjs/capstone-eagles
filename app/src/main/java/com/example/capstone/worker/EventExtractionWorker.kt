@@ -2,6 +2,7 @@ package com.example.capstone.worker
 
 import android.content.Context
 import android.util.Log
+import androidx.preference.PreferenceManager
 import androidx.work.*
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
@@ -87,8 +88,11 @@ class EventExtractionWorker(
             val eventTime = event.timestamp
             val eventRelativeTime = eventTime - videoStartTime
 
-            val startTime = maxOf(0, eventRelativeTime - 3000)
-            val duration = 6000L  // 60초
+            val prefs = PreferenceManager.getDefaultSharedPreferences(applicationContext)
+            val setDuration = prefs.getString("event_video_duration", "60000") ?: "60000"
+            val duration = setDuration.toLong()
+            val startTime = maxOf(0, eventRelativeTime - duration/2)
+
 
             Log.d(TAG, "   이벤트 시각: ${eventRelativeTime}ms")
             Log.d(TAG, "   추출 구간: ${startTime}ms ~ ${startTime + duration}ms")

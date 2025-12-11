@@ -83,18 +83,6 @@ class HybridSensorLogger(
                         )
                     } else null,
                     "speed" to event.speed,
-                    "accelerometer" to mapOf(
-                        "x" to event.accelerometerX,
-                        "y" to event.accelerometerY,
-                        "z" to event.accelerometerZ
-                    ),
-                    "gyroscope" to if (event.gyroX != null) {
-                        mapOf(
-                            "x" to event.gyroX,
-                            "y" to event.gyroY,
-                            "z" to event.gyroZ
-                        )
-                    } else null,
                     "videoFilePath" to event.videoFilePath,
                     "extractedVideoPath" to event.extractedVideoPath,
                     "status" to event.status
