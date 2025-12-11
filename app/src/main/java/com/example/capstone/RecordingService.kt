@@ -730,7 +730,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                     if (location != null) {
                         // 센서 데이터 기록
                         hybridLogger?.logSensorData(
-                            context = this@RecordingService,
                             location = location,
                             speed = currentSpeed,
 //                            accelerometer = currentAccelerometer.clone(),
@@ -740,7 +739,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                         Log.d(TAG, "✅ SRT 로그 기록 (타이머)")
                     } else {
                         hybridLogger?.logSensorData(
-                            context = this@RecordingService,
                             location = Location("null"),
                             speed = 0.0f,)
                         Log.w(TAG, "⚠️ 위치 정보 없음 (GPS 대기 중)")
