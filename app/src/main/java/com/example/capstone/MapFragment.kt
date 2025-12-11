@@ -50,6 +50,7 @@ import com.naver.maps.map.util.FusedLocationSource
 import com.naver.maps.map.LocationTrackingMode
 import android.content.ActivityNotFoundException
 import android.content.Context
+import com.google.android.gms.location.LocationServices
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
@@ -349,6 +350,20 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 //            locationSource.setCompassEnabled(useCompass)
 //        }
 
+        // 🔹 시스템에 저장된 마지막 위치를 먼저 한 번 써서 카메라 이동
+        val fused = LocationServices.getFusedLocationProviderClient(requireContext())
+        fused.lastLocation.addOnSuccessListener { location ->
+            if (location != null) {
+                val lat = location.latitude
+                val lon = location.longitude
+
+                isProgrammaticMove = true
+                val cameraPosition = CameraPosition(LatLng(lat, lon), 15.0)
+                val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+                naverMap.moveCamera(cameraUpdate)
+            }
+        }
+
         // 지도 설정
         naverMap.apply {
             // 줌 레벨 설정
@@ -358,17 +373,17 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             // ✅ 네이버 지도 기본 현위치 오버레이 활성화
             locationOverlay.isVisible = true
 
-            // 초기 카메라 위치 (서울시청)
-            val defaultLat = 37.5665
-            val defaultLon = 126.9780
-            val targetLat = locationManager.lastLat ?: defaultLat
-            val targetLon = locationManager.lastLon ?: defaultLon
-
-            // ✅ CameraPosition 사용
-            isProgrammaticMove = true
-            val cameraPosition = CameraPosition(LatLng(targetLat, targetLon), 15.0)
-            val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
-            moveCamera(cameraUpdate)
+//            // 초기 카메라 위치 (서울시청)
+//            val defaultLat = 37.5665
+//            val defaultLon = 126.9780
+//            val targetLat = locationManager.lastLat ?: defaultLat
+//            val targetLon = locationManager.lastLon ?: defaultLon
+//
+//            // ✅ CameraPosition 사용
+//            isProgrammaticMove = true
+//            val cameraPosition = CameraPosition(LatLng(targetLat, targetLon), 15.0)
+//            val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+//            moveCamera(cameraUpdate)
 
             // ✅ UI 설정
             uiSettings.apply {
