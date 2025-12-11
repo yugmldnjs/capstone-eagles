@@ -95,11 +95,8 @@ class CongestionOverlayManager(
                 radiusMeters = clusterRadius
             )
 
-            // 220m 이내 클러스터끼리는 병합
-            val merged = mergeNearbyClusters(clusters, clusterRadius * 1.5)
-
             // ✅ 5명 미만은 전부 숨김
-            val displayClusters = merged.filter { it.userCount >= 5 }
+            val displayClusters = clusters.filter { it.userCount >= 5 }
             Log.d(TAG, "표시 대상 클러스터: ${displayClusters.size}개 (5명 이상만 표시)")
 
             // Circle / Marker 풀 확장 (재사용)
@@ -149,7 +146,6 @@ class CongestionOverlayManager(
             Log.e(TAG, "클러스터 업데이트 실패", e)
         }
     }
-
 
     private fun createMarkerIcon(count: Int, level: CongestionLevel): OverlayImage {
         val sizeDp = 80 // dp
@@ -202,52 +198,6 @@ class CongestionOverlayManager(
         canvas.drawText(text, centerX, textY, textPaint)
 
         return OverlayImage.fromBitmap(bitmap)
-    }
-
-    private fun mergeNearbyClusters(
-        clusters: List<CongestionCluster>,
-        mergeThresholdMeters: Double
-    ): List<CongestionCluster> {
-        val result = mutableListOf<CongestionCluster>()
-
-        for (cluster in clusters) {
-            val existing = result.firstOrNull {
-                val dist = LocationUtils.calculateDistance(
-                    it.centerLat, it.centerLon,
-                    cluster.centerLat, cluster.centerLon
-                )
-                dist < mergeThresholdMeters
-            }
-
-            if (existing == null) {
-                result.add(cluster)
-            } else {
-                val totalUsers = existing.userCount + cluster.userCount
-                val newLat = (existing.centerLat * existing.userCount +
-                        cluster.centerLat * cluster.userCount) / totalUsers
-                val newLon = (existing.centerLon * existing.userCount +
-                        cluster.centerLon * cluster.userCount) / totalUsers
-
-                val newLevel = when {
-                    existing.level == CongestionLevel.HIGH ||
-                            cluster.level == CongestionLevel.HIGH -> CongestionLevel.HIGH
-                    existing.level == CongestionLevel.MEDIUM ||
-                            cluster.level == CongestionLevel.MEDIUM -> CongestionLevel.MEDIUM
-                    else -> CongestionLevel.LOW
-                }
-
-                result.remove(existing)
-                result.add(
-                    CongestionCluster(
-                        centerLat = newLat,
-                        centerLon = newLon,
-                        userCount = totalUsers,
-                        level = newLevel
-                    )
-                )
-            }
-        }
-        return result
     }
 
     private fun addAlphaToColor(color: Int, alpha: Float): Int {
