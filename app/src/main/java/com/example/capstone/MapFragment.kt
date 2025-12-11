@@ -48,6 +48,9 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import com.naver.maps.map.util.FusedLocationSource
 import com.naver.maps.map.LocationTrackingMode
+import android.content.ActivityNotFoundException
+import android.content.Context
+import com.google.android.gms.location.LocationServices
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
@@ -347,6 +350,20 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 //            locationSource.setCompassEnabled(useCompass)
 //        }
 
+        // 🔹 시스템에 저장된 마지막 위치를 먼저 한 번 써서 카메라 이동
+        val fused = LocationServices.getFusedLocationProviderClient(requireContext())
+        fused.lastLocation.addOnSuccessListener { location ->
+            if (location != null) {
+                val lat = location.latitude
+                val lon = location.longitude
+
+                isProgrammaticMove = true
+                val cameraPosition = CameraPosition(LatLng(lat, lon), 15.0)
+                val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+                naverMap.moveCamera(cameraUpdate)
+            }
+        }
+
         // 지도 설정
         naverMap.apply {
             // 줌 레벨 설정
@@ -356,17 +373,17 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
             // ✅ 네이버 지도 기본 현위치 오버레이 활성화
             locationOverlay.isVisible = true
 
-            // 초기 카메라 위치 (서울시청)
-            val defaultLat = 37.5665
-            val defaultLon = 126.9780
-            val targetLat = locationManager.lastLat ?: defaultLat
-            val targetLon = locationManager.lastLon ?: defaultLon
-
-            // ✅ CameraPosition 사용
-            isProgrammaticMove = true
-            val cameraPosition = CameraPosition(LatLng(targetLat, targetLon), 15.0)
-            val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
-            moveCamera(cameraUpdate)
+//            // 초기 카메라 위치 (서울시청)
+//            val defaultLat = 37.5665
+//            val defaultLon = 126.9780
+//            val targetLat = locationManager.lastLat ?: defaultLat
+//            val targetLon = locationManager.lastLon ?: defaultLon
+//
+//            // ✅ CameraPosition 사용
+//            isProgrammaticMove = true
+//            val cameraPosition = CameraPosition(LatLng(targetLat, targetLon), 15.0)
+//            val cameraUpdate = CameraUpdate.toCameraPosition(cameraPosition)
+//            moveCamera(cameraUpdate)
 
             // ✅ UI 설정
             uiSettings.apply {
@@ -579,34 +596,40 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         // 안전신문고 앱 / 플레이스토어로 이동
         btnSafetyApp.setOnClickListener {
-            val packageName = "kr.go.safepeople"  // 안전신문고 앱 패키지명
-            val pm = requireContext().packageManager
-            val launchIntent = pm.getLaunchIntentForPackage(packageName)
-
-            if (launchIntent != null) {
-                // 앱이 설치되어 있으면 바로 실행
-                startActivity(launchIntent)
-            } else {
-                // 설치 안 되어 있으면 플레이스토어 → 안 되면 웹스토어
-                try {
-                    val playStoreIntent = Intent(Intent.ACTION_VIEW).apply {
-                        data = Uri.parse("market://details?id=$packageName")
-                        setPackage("com.android.vending")
-                    }
-                    startActivity(playStoreIntent)
-                } catch (e: Exception) {
-                    val webIntent = Intent(Intent.ACTION_VIEW).apply {
-                        data = Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
-                    }
-                    startActivity(webIntent)
-                }
-            }
-
+            openSafetyAppOrStore(requireContext())
             dialog.dismiss()
         }
 
         dialog.setContentView(view)
         dialog.show()
+    }
+
+    fun openSafetyAppOrStore(context: Context) {
+        val packageName = "kr.go.safepeople"   // 안전신문고 패키지
+
+        val pm = context.packageManager
+        val launchIntent = pm.getLaunchIntentForPackage(packageName)
+
+        if (launchIntent != null) {
+            // ✅ 앱 설치 O → 바로 앱 실행
+            context.startActivity(launchIntent)
+        } else {
+            // ✅ 앱 설치 X → 플레이스토어로 이동 (앱 플레이스토어 앱 우선)
+            try {
+                val playStoreIntent = Intent(Intent.ACTION_VIEW).apply {
+                    data = Uri.parse("market://details?id=$packageName")
+                    setPackage("com.android.vending")
+                }
+                context.startActivity(playStoreIntent)
+            } catch (e: ActivityNotFoundException) {
+                // 혹시 플레이스토어 앱도 없으면 웹 브라우저로
+                val webIntent = Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
+                )
+                context.startActivity(webIntent)
+            }
+        }
     }
 
     private fun postAddressInfoResult(

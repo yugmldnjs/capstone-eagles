@@ -27,6 +27,11 @@
         android:name="android.hardware.camera.flash"
         android:required="false" />
 
+    <queries>
+        <!-- 안전신문고 패키지 -->
+        <package android:name="kr.go.safepeople" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
