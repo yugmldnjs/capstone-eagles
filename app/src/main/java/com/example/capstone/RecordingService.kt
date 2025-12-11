@@ -448,30 +448,27 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         currentPreview = preview
         Log.d(TAG, "Single preview created")
 
-        // 2) VideoCapture (기존 코드 유지)
+        // 2) VideoCapture
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
         val resValue = prefs.getString("resolution", "720")
 
-        // 2. 해상도에 따른 비트레이트 및 Quality 매핑
-        // (Pair: 목표 Quality, 목표 비트레이트)
+        // 해상도별 Quality + Bitrate 설정
         val (targetQuality, targetBitrate) = when (resValue) {
-            "1080" -> Pair(Quality.FHD, 6 * 1024 * 1024) // FHD: 6 Mbps
-            "720"  -> Pair(Quality.HD,  3 * 1024 * 1024) // HD : 3 Mbps
-            "480"  -> Pair(Quality.SD,  1.5 * 1024 * 1024).run {
-                Pair(Quality.SD, (1.5 * 1024 * 1024).toInt())
-            }
-            else   -> Pair(Quality.HD,  3 * 1024 * 1024) // 예외 발생 시 HD 기본
+            "1080" -> Quality.FHD to (6 * 1024 * 1024)   // 6 Mbps
+            "720"  -> Quality.HD  to (3 * 1024 * 1024)   // 3 Mbps
+            "480"  -> Quality.SD  to (1.5 * 1024 * 1024).toInt() // 1.5 Mbps
+            else   -> Quality.HD  to (3 * 1024 * 1024)
         }
 
-        Log.d(TAG, " 설정된 해상도: $resValue, 비트레이트: ${targetBitrate / 1024 / 1024} Mbps")
+        Log.d(TAG, "설정된 해상도: $resValue, 비트레이트: ${targetBitrate / 1024 / 1024} Mbps")
 
         val recorder = Recorder.Builder()
-
-            .setQualitySelector(QualitySelector.from(
-                targetQuality,
-                FallbackStrategy.lowerQualityOrHigherThan(targetQuality)
-            ))
-
+            .setQualitySelector(
+                QualitySelector.from(
+                    targetQuality,
+                    FallbackStrategy.lowerQualityOrHigherThan(targetQuality)
+                )
+            )
             .setTargetVideoEncodingBitRate(targetBitrate)
             .build()
 
