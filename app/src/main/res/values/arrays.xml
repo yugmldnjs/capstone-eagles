@@ -29,4 +29,17 @@
         <item>1080</item>
     </string-array>
 
+    <!-- 이벤트 영상 길이 리스트 -->
+    <string-array name="event_video_duration_entries">
+        <item>1분</item>
+        <item>3분</item>
+        <item>5분</item>
+    </string-array>
+
+    <string-array name="event_video_duration_values">
+        <item>60000</item>
+        <item>180000</item>
+        <item>300000</item>
+    </string-array>
+
 </resources>
