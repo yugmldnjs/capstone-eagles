@@ -427,7 +427,7 @@ class PotholeDetector(
     fun cropPotholeBitmap(
         image: ImageProxy,
         detection: PotholeDetection,
-        paddingScale: Float = 1.3f
+        paddingScale: Float = 3.0f
     ): Bitmap? {
         return try {
             // 1) YUV → Bitmap

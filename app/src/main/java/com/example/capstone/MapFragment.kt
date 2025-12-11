@@ -48,6 +48,8 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import com.naver.maps.map.util.FusedLocationSource
 import com.naver.maps.map.LocationTrackingMode
+import android.content.ActivityNotFoundException
+import android.content.Context
 
 class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
@@ -56,7 +58,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         private const val REQ_LOCATION = 1000
 
         // ✅ 포트홀 경고 조건
-        private const val POTHOLE_ALERT_DISTANCE_METERS = 10.0   // 거리 20m
+        private const val POTHOLE_ALERT_DISTANCE_METERS = 10.0   // 거리 10m
         private const val POTHOLE_ALERT_ANGLE_DEG = 60.0         // 진행 방향 ±60도 안쪽만
         private const val POTHOLE_ALERT_INTERVAL_MS = 10000L    // 최소 10초 간격
     }
@@ -320,7 +322,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         }
 
         ttsEngine.speak(
-            "포트홀을 주의하세요",
+            "근처의 포트홀을 주의하세요",
             TextToSpeech.QUEUE_ADD,
             params,
             "POTHOLE_WARNING"
@@ -579,34 +581,40 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
 
         // 안전신문고 앱 / 플레이스토어로 이동
         btnSafetyApp.setOnClickListener {
-            val packageName = "kr.go.safepeople"  // 안전신문고 앱 패키지명
-            val pm = requireContext().packageManager
-            val launchIntent = pm.getLaunchIntentForPackage(packageName)
-
-            if (launchIntent != null) {
-                // 앱이 설치되어 있으면 바로 실행
-                startActivity(launchIntent)
-            } else {
-                // 설치 안 되어 있으면 플레이스토어 → 안 되면 웹스토어
-                try {
-                    val playStoreIntent = Intent(Intent.ACTION_VIEW).apply {
-                        data = Uri.parse("market://details?id=$packageName")
-                        setPackage("com.android.vending")
-                    }
-                    startActivity(playStoreIntent)
-                } catch (e: Exception) {
-                    val webIntent = Intent(Intent.ACTION_VIEW).apply {
-                        data = Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
-                    }
-                    startActivity(webIntent)
-                }
-            }
-
+            openSafetyAppOrStore(requireContext())
             dialog.dismiss()
         }
 
         dialog.setContentView(view)
         dialog.show()
+    }
+
+    fun openSafetyAppOrStore(context: Context) {
+        val packageName = "kr.go.safepeople"   // 안전신문고 패키지
+
+        val pm = context.packageManager
+        val launchIntent = pm.getLaunchIntentForPackage(packageName)
+
+        if (launchIntent != null) {
+            // ✅ 앱 설치 O → 바로 앱 실행
+            context.startActivity(launchIntent)
+        } else {
+            // ✅ 앱 설치 X → 플레이스토어로 이동 (앱 플레이스토어 앱 우선)
+            try {
+                val playStoreIntent = Intent(Intent.ACTION_VIEW).apply {
+                    data = Uri.parse("market://details?id=$packageName")
+                    setPackage("com.android.vending")
+                }
+                context.startActivity(playStoreIntent)
+            } catch (e: ActivityNotFoundException) {
+                // 혹시 플레이스토어 앱도 없으면 웹 브라우저로
+                val webIntent = Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
+                )
+                context.startActivity(webIntent)
+            }
+        }
     }
 
     private fun postAddressInfoResult(
@@ -850,7 +858,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         tts?.stop()
         tts?.shutdown()
         tts = null
-        alertedPotholeIds.clear()
+        //alertedPotholeIds.clear()
         prevLatForHeading = null
         prevLonForHeading = null
         lastHeadingDeg = null

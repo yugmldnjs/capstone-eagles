@@ -1,14 +1,19 @@
 package com.example.capstone.utils
 
 import android.content.Context
-import android.location.Geocoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.net.toUri
+import com.example.capstone.BuildConfig
 import com.example.capstone.database.BikiDatabase
-import java.util.Locale
+import okhttp3.OkHttpClient
+import org.json.JSONObject
 import java.util.regex.Pattern
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.pow
@@ -26,7 +31,18 @@ object LocationUtils {
         } else {
             getVideoLocation(context, filePath.toUri())
         }
-        return getAddressFromLocation(context, lat, lon)
+
+        Log.d(TAG, "getAddressFromFile: $lat, $lon")
+        // 콜백 기반 비동기 함수를 suspend로 감싸서 "기다리게" 만들기
+        return suspendCoroutine { cont ->
+            getAddressFromLocation(lat, lon) { address ->
+                val result = address ?: "위치 정보 없음"
+                Log.d(TAG, "getAddressFromFile callback: $result")
+
+                // 여기서 getAddressFromFile의 리턴값을 확정짓고 코루틴 재개
+                cont.resume(result)
+            }
+        }
     }
 
     fun getVideoLocation(context: Context, videoUri: Uri): Pair<Double, Double> {
@@ -83,16 +99,16 @@ object LocationUtils {
     }
 
     // [핵심 함수 3] 위도/경도 숫자를 한글 주소로 변환
-    fun getAddressFromLocation(context: Context,latitude: Double, longitude: Double): String {
-        if (latitude == 0.0 && longitude == 0.0) return "위치 정보 없음"
-        return try {
-            val geocoder = Geocoder(context, Locale.KOREA)
-            val addresses = geocoder.getFromLocation(latitude, longitude, 1)
-            if (!addresses.isNullOrEmpty()) addresses[0].getAddressLine(0) else "알 수 없는 위치"
-        } catch (e: Exception) {
-            "위치 변환 실패"
-        }
-    }
+//    fun getAddressFromLocation(context: Context,latitude: Double, longitude: Double): String {
+//        if (latitude == 0.0 && longitude == 0.0) return "위치 정보 없음"
+//        return try {
+//            val geocoder = Geocoder(context, Locale.KOREA)
+//            val addresses = geocoder.getFromLocation(latitude, longitude, 1)
+//            if (!addresses.isNullOrEmpty()) addresses[0].getAddressLine(0) else "알 수 없는 위치"
+//        } catch (e: Exception) {
+//            "위치 변환 실패"
+//        }
+//    }
 
     fun calculateDistance(
         lat1: Double, lon1: Double,
@@ -133,4 +149,96 @@ object LocationUtils {
         val qLon = kotlin.math.round(lon * factor) / factor
         return qLat to qLon
     }
+
+    private val httpClient by lazy { OkHttpClient() }
+    // 메인 스레드로 콜백을 보내기 위한 Handler
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+
+    fun getAddressFromLocation(
+        latitude: Double,
+        longitude: Double,
+        callback: (String?) -> Unit
+    ) {
+        Thread {
+            Log.d(TAG, "----------------------------------------------------")
+            // 네이버 Reverse Geocoding은 x=경도, y=위도
+            val coords = "$longitude,$latitude"
+            Log.d(TAG, "fetchAddressForPothole: $coords")
+
+            val url =
+                "https://maps.apigw.ntruss.com/map-reversegeocode/v2/gc" +
+                        "?coords=$coords" +
+                        "&orders=roadaddr,addr" +
+                        "&output=json" +
+                        "&request=coordsToaddr" +
+                        "&sourcecrs=epsg:4326"
+
+            val request = okhttp3.Request.Builder()
+                .url(url)
+                .addHeader("X-NCP-APIGW-API-KEY-ID", BuildConfig.NAVER_MAP_CLIENT_ID)
+                .addHeader("X-NCP-APIGW-API-KEY", BuildConfig.NAVER_MAP_CLIENT_SECRET)
+                .build()
+
+            try {
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.e(TAG, "reverseGeocode 실패: code=${response.code}")
+                        postResult(null, callback)
+                        return@use
+                    }
+
+                    val body = response.body?.string()
+                    if (body.isNullOrEmpty()) {
+                        postResult(null, callback)
+                        return@use
+                    }
+
+                    val address = parseAddressFromJson(body)
+                    postResult(address, callback)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "reverseGeocode 예외", e)
+                postResult(null, callback)
+            }
+        }.start()
+    }
+
+    private fun parseAddressFromJson(body: String): String? {
+        val json = JSONObject(body)
+        val results = json.optJSONArray("results") ?: return null
+        if (results.length() == 0) return null
+
+        // 일단 첫 번째 결과 사용 (roadaddr, addr 순서라면 roadaddr가 먼저 올 확률 높음)
+        val first = results.getJSONObject(0)
+
+        val region = first.optJSONObject("region")
+        val area1 = region?.optJSONObject("area1")?.optString("name", "")
+        val area2 = region?.optJSONObject("area2")?.optString("name", "")
+        val area3 = region?.optJSONObject("area3")?.optString("name", "")
+
+        val land = first.optJSONObject("land")
+        val name = land?.optString("name", "")
+        val number1 = land?.optString("number1", "")
+        val number2 = land?.optString("number2", "")
+        val numbers = listOf(number1, number2)
+            .filter { !it.isNullOrBlank() }
+            .joinToString("-")
+
+        val address = listOf(area1, area2, area3, name, numbers)
+            .filter { !it.isNullOrBlank() }
+            .joinToString(" ")
+
+        return address.ifBlank { null }
+    }
+
+    /**
+     * 항상 메인 스레드에서 콜백을 호출하기 위한 헬퍼
+     */
+    private fun postResult(value: String?, callback: (String?) -> Unit) {
+        mainHandler.post {
+            callback(value)
+        }
+    }
+
 }

@@ -56,6 +56,9 @@ import com.example.capstone.ml.Track
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.graphics.Bitmap
+import android.speech.tts.TextToSpeech
+import android.media.AudioAttributes
+import android.os.Bundle
 
 class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener {
 
@@ -139,6 +142,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
     @Volatile
     private var lastPotholeCrop: Bitmap? = null
 
+    // ✅ 충격 감지 TTS
+    private var impactTts: TextToSpeech? = null
+
     fun consumeLastPotholeCrop(): Bitmap? {
         val bmp = lastPotholeCrop
         lastPotholeCrop = null
@@ -165,6 +171,29 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
             gen.startTone(ToneGenerator.TONE_PROP_BEEP, 150) // 150ms 정도
         } catch (e: Exception) {
             Log.w(TAG, "포트홀 beep 재생 실패", e)
+        }
+    }
+
+    // ✅ 충격 감지 시 음성 안내
+    private fun speakImpactDetected() {
+        // 설정에서 음성 안내 꺼져 있으면 재생 안 함 (포트홀 TTS와 같은 스위치 사용)
+        if (!isPotholeSoundEnabled()) return
+
+        val ttsEngine = impactTts ?: return
+
+        val params = Bundle().apply {
+            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_NOTIFICATION)
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)  // 0.0 ~ 1.0
+        }
+
+        // TTS는 메인 스레드에서 돌리는 게 안전하니까 handler로 넘김
+        mainHandler.post {
+            ttsEngine.speak(
+                "충격이 감지되었습니다.",
+                TextToSpeech.QUEUE_ADD,
+                params,
+                "IMPACT_DETECTED"
+            )
         }
     }
 
@@ -293,6 +322,21 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
 
         // ✅ 포트홀 감지 알림음 초기화
         toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
+
+        // ✅ 충격 감지 TTS 초기화
+        impactTts = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                impactTts?.language = Locale.KOREAN
+
+                val audioAttrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+                impactTts?.setAudioAttributes(audioAttrs)
+            } else {
+                Log.e(TAG, "Impact TTS 초기화 실패: $status")
+            }
+        }
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("카메라 준비 중"))
@@ -686,7 +730,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                     if (location != null) {
                         // 센서 데이터 기록
                         hybridLogger?.logSensorData(
-                            context = this@RecordingService,
                             location = location,
                             speed = currentSpeed,
 //                            accelerometer = currentAccelerometer.clone(),
@@ -696,7 +739,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                         Log.d(TAG, "✅ SRT 로그 기록 (타이머)")
                     } else {
                         hybridLogger?.logSensorData(
-                            context = this@RecordingService,
                             location = Location("null"),
                             speed = 0.0f,)
                         Log.w(TAG, "⚠️ 위치 정보 없음 (GPS 대기 중)")
@@ -854,6 +896,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
 
         GlobalScope.launch(Dispatchers.Main) {
             Toast.makeText(applicationContext, "충격이 감지되었습니다.", Toast.LENGTH_SHORT).show()
+
+            // 🔊 충격 감지 TTS
+            speakImpactDetected()
         }
         Log.d(TAG, "⚡ 충격 이벤트 마커 저장 로직 완료: $timestamp")
     }
@@ -897,5 +942,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         // ✅ 알림음 리소스 정리
         toneGenerator?.release()
         toneGenerator = null
+
+        impactTts?.stop()
+        impactTts?.shutdown()
+        impactTts = null
     }
 }

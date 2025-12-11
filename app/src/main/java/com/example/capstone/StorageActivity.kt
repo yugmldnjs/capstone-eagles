@@ -283,7 +283,7 @@ class StorageActivity : AppCompatActivity() {
         }
 
         try {
-            val fileName = File(videoItem.videoPath).name
+            val fileName = File(videoItem.videoPath).nameWithoutExtension
 
             val resolver = contentResolver
             //  영상 파일(.mp4) 저장 값
