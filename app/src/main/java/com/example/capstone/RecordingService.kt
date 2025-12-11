@@ -236,36 +236,37 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
 
         var hasNewPotholeEvent = false
 
-        // ✅ 이번 프레임에서 새로 등장한 트랙 ID들
+// ✅ 새로 등장한 트랙 → beep 용도로만 사용 (이벤트 판정은 아래에서 따로)
         val addedIds = currentIds - prevTrackIds
         if (addedIds.isNotEmpty()) {
             // 한 프레임에 여러 개 생겨도 "띵-" 한 번이면 충분하다고 보고 1번만 호출
             playPotholeBeep()
-
-            // 새로 생긴 트랙들 중에서, 점수/위치 조건을 만족하면
-            // "포트홀을 처음 인식한 순간"으로 보고 이벤트 발생
-            val bestNewTrack = tracks
-                .filter { it.id in addedIds }
-                .maxByOrNull { it.score }
-
-            if (bestNewTrack != null &&
-                bestNewTrack.score >= EVENT_SCORE_THRESHOLD &&   // 신뢰도 조건
-                bestNewTrack.bbox[1] >= EVENT_NEAR_Y    // 화면 아래쪽에서만
-            ) {
-                hasNewPotholeEvent = true
-            }
         }
 
-        // 살아있는 트랙 상태 업데이트 (통계용으로 그대로 유지)
+// ✅ 살아있는 트랙 상태 업데이트 + 근거리 진입 이벤트 체크
         for (t in tracks) {
             val state = trackStates.getOrPut(t.id) {
                 PotholeTrackState(
                     firstFrame = frameIndex,
                     lastFrame = frameIndex,
                     maxScore = t.score,
-                    lastCy = t.bbox[1]
+                    lastCy = t.bbox[1],
+                    mapped = false
                 )
             }
+
+            // 이 트랙에서 아직 이벤트가 안 났고,
+            // 이번 프레임에 "처음으로" 화면 하단 근거리 영역에 들어왔으면 이벤트 발생
+            //  -> y(=bbox[1])가 EVENT_NEAR_Y 이하(하단 영역)이고, 신뢰도도 기준 이상일 때
+            if (!state.mapped &&
+                t.score >= EVENT_SCORE_THRESHOLD &&
+                t.bbox[1] >= EVENT_NEAR_Y
+            ) {
+                hasNewPotholeEvent = true
+                state.mapped = true    // 이 트랙에서는 더 이상 이벤트 안 나가도록 플래그
+            }
+
+            // 통계용 상태는 그대로 갱신
             state.lastFrame = frameIndex
             if (t.score > state.maxScore) {
                 state.maxScore = t.score
@@ -273,7 +274,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
             state.lastCy = t.bbox[1]
         }
 
-        // 프레임에서 완전히 사라진 트랙 → 상태만 정리 (이제는 이벤트 발생 X)
+// 프레임에서 완전히 사라진 트랙 → 상태 정리
         val removedIds = prevTrackIds - currentIds
         for (id in removedIds) {
             trackStates.remove(id)

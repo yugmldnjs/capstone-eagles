@@ -237,11 +237,28 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         prevLatForHeading = lat
         prevLonForHeading = lon
 
-        // ✅ 2) 카메라 / 현위치 오버레이 이동은 네이버 SDK(Follow 모드)에 맡김
-        //    여기서 moveCamera를 호출하면 Follow → NoFollow로 떨어져서
-        //    화살표가 바로 사라진다.
-        if (isFirstLocation) {
+        // ✅ 2) 첫 GPS 들어올 때 한 번만 카메라를 현재 위치로 맞추기
+        if (isFirstLocation && this::naverMap.isInitialized) {
             isFirstLocation = false
+
+            try {
+                isProgrammaticMove = true
+
+                // 지금 카메라 줌 유지하면서 위치만 맞춰줌
+                val currentZoom = naverMap.cameraPosition.zoom
+                val cameraPosition = CameraPosition(
+                    LatLng(lat, lon),
+                    currentZoom
+                )
+                val cameraUpdate = CameraUpdate
+                    .toCameraPosition(cameraPosition)
+                    .animate(CameraAnimation.Easing)
+
+                naverMap.moveCamera(cameraUpdate)
+                Log.d(TAG, "첫 GPS 위치로 카메라 재정렬: lat=$lat, lon=$lon")
+            } catch (e: Exception) {
+                Log.e(TAG, "첫 위치 카메라 이동 중 오류", e)
+            }
         }
 
         // ✅ 3) 포트홀 TTS 경고 체크
