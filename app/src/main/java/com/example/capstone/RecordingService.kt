@@ -449,15 +449,34 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         Log.d(TAG, "Single preview created")
 
         // 2) VideoCapture (기존 코드 유지)
-        if (videoCapture == null) {
-            val recorder = Recorder.Builder()
-                .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
-                .build()
-            videoCapture = VideoCapture.withOutput(recorder)
-            Log.d(TAG, "VideoCapture created")
-        } else {
-            Log.d(TAG, "VideoCapture already exists")
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        val resValue = prefs.getString("resolution", "720")
+
+        // 2. 해상도에 따른 비트레이트 및 Quality 매핑
+        // (Pair: 목표 Quality, 목표 비트레이트)
+        val (targetQuality, targetBitrate) = when (resValue) {
+            "1080" -> Pair(Quality.FHD, 6 * 1024 * 1024) // FHD: 6 Mbps
+            "720"  -> Pair(Quality.HD,  3 * 1024 * 1024) // HD : 3 Mbps
+            "480"  -> Pair(Quality.SD,  1.5 * 1024 * 1024).run {
+                Pair(Quality.SD, (1.5 * 1024 * 1024).toInt())
+            }
+            else   -> Pair(Quality.HD,  3 * 1024 * 1024) // 예외 발생 시 HD 기본
         }
+
+        Log.d(TAG, " 설정된 해상도: $resValue, 비트레이트: ${targetBitrate / 1024 / 1024} Mbps")
+
+        val recorder = Recorder.Builder()
+
+            .setQualitySelector(QualitySelector.from(
+                targetQuality,
+                FallbackStrategy.lowerQualityOrHigherThan(targetQuality)
+            ))
+
+            .setTargetVideoEncodingBitRate(targetBitrate)
+            .build()
+
+        videoCapture = VideoCapture.withOutput(recorder)
+
 
         // 3) ImageAnalysis (포트홀 감지용)
         val detector = potholeDetector
