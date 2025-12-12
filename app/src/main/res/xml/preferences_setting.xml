@@ -169,6 +169,17 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="개발자 도구"
+        app:iconSpaceReserved="false">
+
+        <SwitchPreferenceCompat
+            android:key="show_pothole_boxes"
+            android:title="포트홀 바운딩 박스 표시"
+            android:summary="디버깅용 포트홀 인식 박스를 화면에 그릴지 여부를 설정합니다."
+            android:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+    </PreferenceCategory>
+
 
 
 </PreferenceScreen>

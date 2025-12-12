@@ -62,6 +62,15 @@ class MainActivity2 : AppCompatActivity() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationRequest: LocationRequest
 
+    // ✅ 설정 변경 감지 리스너
+    private val prefChangeListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
+            if (key == "show_pothole_boxes") {
+                val enabled = sharedPreferences.getBoolean("show_pothole_boxes", true)
+                binding.potholeOverlay.showDebugBoxes = enabled
+            }
+        }
+
     private val locationPermissionCode = 1000
 
     private val serviceConnection = object : ServiceConnection {
@@ -148,8 +157,6 @@ class MainActivity2 : AppCompatActivity() {
             }
         }
 
-
-
     private val recordingReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -224,6 +231,14 @@ class MainActivity2 : AppCompatActivity() {
                 }
             }
         })
+
+        // ✅ 바운딩 박스 디버그 표시 초기값 적용
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        val showBoxes = prefs.getBoolean("show_pothole_boxes", true)
+        binding.potholeOverlay.showDebugBoxes = showBoxes
+
+        // ✅ 설정 값 변경될 때마다 자동 반영
+        prefs.registerOnSharedPreferenceChangeListener(prefChangeListener)
 
         setupClickListeners()
         observeViewModel() // 이 함수가 콜백을 활성화/비활성화 제어
@@ -714,6 +729,19 @@ class MainActivity2 : AppCompatActivity() {
         if (serviceBound) {
             //recordingService?.setSensorCallback(null) // 콜백 해제 추가
             // ✅ 액티비티가 사라질 때 콜백 끊기
+            recordingService?.setPotholeListener(null)
+            unbindService(serviceConnection)
+            serviceBound = false
+        }
+
+        // ✅ 설정 변경 리스너 해제
+        try {
+            val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+            prefs.unregisterOnSharedPreferenceChangeListener(prefChangeListener)
+        } catch (_: Exception) {
+        }
+
+        if (serviceBound) {
             recordingService?.setPotholeListener(null)
             unbindService(serviceConnection)
             serviceBound = false

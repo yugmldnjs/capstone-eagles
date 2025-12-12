@@ -19,6 +19,15 @@ class PotholeOverlayView @JvmOverloads constructor(
         private const val TAG = "PotholeOverlayView"
     }
 
+    // ✅ 디버깅용 바운딩 박스 표시 여부
+    var showDebugBoxes: Boolean = true
+        set(value) {
+            field = value
+            // 값 바뀌면 바로 다시 그리도록
+            invalidate()
+            visibility = if (value) View.VISIBLE else View.GONE
+        }
+
     private val boxPaint = Paint().apply {
         style = Paint.Style.STROKE
         strokeWidth = 5f
@@ -43,13 +52,13 @@ class PotholeOverlayView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        if (tracks.isEmpty()) return
+        // ✅ 디버그 표시 꺼져 있으면 그냥 아무것도 안 그림
+        if (!showDebugBoxes || tracks.isEmpty()) return
 
         val w = width.toFloat()
         val h = height.toFloat()
 
         for (t in tracks) {
-            // bbox = [cx, cy, w, h] (0~1 정규화) 라고 가정
             val cx = t.bbox[0].coerceIn(0f, 1f)
             val cy = t.bbox[1].coerceIn(0f, 1f)
             val bw = t.bbox[2].coerceIn(0.01f, 1f)
@@ -60,10 +69,8 @@ class PotholeOverlayView @JvmOverloads constructor(
             val right = (cx + bw / 2f) * w
             val bottom = (cy + bh / 2f) * h
 
-            // 박스
             canvas.drawRect(RectF(left, top, right, bottom), boxPaint)
 
-            // 텍스트: ID + score
             val label = "ID=${t.id} (%.2f)".format(t.score)
             canvas.drawText(label, left, top - 8f, textPaint)
         }
