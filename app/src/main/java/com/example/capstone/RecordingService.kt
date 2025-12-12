@@ -59,6 +59,7 @@ import android.graphics.Bitmap
 import android.speech.tts.TextToSpeech
 import android.media.AudioAttributes
 import android.os.Bundle
+import android.os.SystemClock
 class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener {
 
     companion object {
@@ -74,7 +75,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         // ★ TFLite 추론 간 최소 간격 (ms) – 필요시 조절
         private const val MIN_INFERENCE_INTERVAL_MS = 0L
 
-        private const val EVENT_SCORE_THRESHOLD = 0.6f
+        private const val EVENT_SCORE_THRESHOLD = 0.8f
         private const val EVENT_NEAR_Y = 0.3f
         // GPS 기반 급정거 감지 파라미터 (속도 단위: km/h)
         private const val GPS_BRAKE_MIN_SPEED_KMH = 5.0f          // 이 속도 이상에서만 급정거 판단
@@ -83,6 +84,8 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         private const val FALL_THRESHOLD_SPEED_KMH = 5.0f
         private const val FALL_THRESHOLD_DEG = 190.0f
         private const val EVENT_COOL_DOWN_MS = 15000L
+
+        private const val PERF_LOG_INTERVAL_MS = 1000L
 
     }
 
@@ -153,6 +156,15 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
     // ✅ 충격 감지 TTS
     private var impactTts: TextToSpeech? = null
 
+    //fps, 추론속도 측정
+    private var frameCount = 0
+    private var fpsStartTime = 0L
+
+    private var inferenceCount = 0
+    private var totalInferenceTimeMs = 0L
+
+
+
     fun consumeLastPotholeCrop(): Bitmap? {
         val bmp = lastPotholeCrop
         lastPotholeCrop = null
@@ -202,7 +214,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         // TTS는 메인 스레드에서 돌리는 게 안전하니까 handler로 넘김
         mainHandler.post {
             ttsEngine.speak(
-                "충격이 감지되었습니다.",
+                "이벤트가 감지되었습니다.",
                 TextToSpeech.QUEUE_ADD,
                 params,
                 "EVENT_DETECTED"
@@ -242,11 +254,11 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         var hasNewPotholeEvent = false
 
 // ✅ 새로 등장한 트랙 → beep 용도로만 사용 (이벤트 판정은 아래에서 따로)
-        val addedIds = currentIds - prevTrackIds
-        if (addedIds.isNotEmpty()) {
-            // 한 프레임에 여러 개 생겨도 "띵-" 한 번이면 충분하다고 보고 1번만 호출
-            playPotholeBeep()
-        }
+//        val addedIds = currentIds - prevTrackIds
+//        if (addedIds.isNotEmpty()) {
+//            // 한 프레임에 여러 개 생겨도 "띵-" 한 번이면 충분하다고 보고 1번만 호출
+//            playPotholeBeep()
+//        }
 
 // ✅ 살아있는 트랙 상태 업데이트 + 근거리 진입 이벤트 체크
         for (t in tracks) {
@@ -267,6 +279,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                 t.score >= EVENT_SCORE_THRESHOLD &&
                 t.bbox[1] >= EVENT_NEAR_Y
             ) {
+                playPotholeBeep()
                 hasNewPotholeEvent = true
                 state.mapped = true    // 이 트랙에서는 더 이상 이벤트 안 나가도록 플래그
             }
@@ -495,50 +508,90 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                 .build().also { analysis ->
                     analysis.setAnalyzer(analysisExecutor) { image ->
 
-                        // ★ 1) 추론 최소 간격 체크
-                        val now = System.currentTimeMillis()
-                        if (now - lastInferenceTime < MIN_INFERENCE_INTERVAL_MS) {
-                            image.close()              // 반드시 닫아줘야 함
+                        // ================= FPS 기준 프레임 카운트 =================
+                        frameCount++
+                        if (fpsStartTime == 0L) {
+                            fpsStartTime = SystemClock.elapsedRealtime()
+                        }
+
+                        // ★ 1) 추론 최소 간격 체크 (기존 코드 유지)
+                        val nowWall = System.currentTimeMillis()
+                        if (nowWall - lastInferenceTime < MIN_INFERENCE_INTERVAL_MS) {
+                            image.close()
                             return@setAnalyzer
                         }
-                        lastInferenceTime = now
+                        lastInferenceTime = nowWall
+
+                        // ================= 추론 시간 측정 시작 =================
+                        val inferenceStart = SystemClock.elapsedRealtime()
 
                         try {
                             val detections = detector.detect(image)
 
-                            val (tracks, hasNewPotholeEvent) = updateTrackerAndCheckNewPothole(
-                                detections
-                            )
+                            // ================= 추론 시간 측정 종료 =================
+                            val inferenceEnd = SystemClock.elapsedRealtime()
+                            val inferenceTime = inferenceEnd - inferenceStart
 
-                            // ✅ 1) 이번 프레임에 detection 이 하나라도 있으면, 일단 "최근 포트홀 사진"으로 저장
+                            inferenceCount++
+                            totalInferenceTimeMs += inferenceTime
+
+                            val (tracks, hasNewPotholeEvent) =
+                                updateTrackerAndCheckNewPothole(detections)
+
+                            // ✅ 기존 로직 그대로
                             val bestDetection = detections.maxByOrNull { it.score }
                             if (bestDetection != null) {
                                 val crop = detector.cropPotholeBitmap(image, bestDetection)
                                 if (crop != null) {
                                     lastPotholeCrop = crop
-                                    Log.d(TAG, "최근 포트홀 사진 crop 업데이트 (w=${crop.width}, h=${crop.height})")
+                                    Log.d(
+                                        TAG,
+                                        "최근 포트홀 사진 crop 업데이트 (w=${crop.width}, h=${crop.height})"
+                                    )
                                 }
                             }
 
-                            // ✅ 2) hasNewPotholeEvent == true 인 프레임에서는
-                            // 위에서 저장해둔 lastPotholeCrop 을 Activity 쪽에서 consumeLastPotholeCrop() 으로 꺼내서 사용
                             if (hasNewPotholeEvent) {
-                                Log.d(TAG, "새 포트홀 확정: hasNewPotholeEvent=true, lastPotholeCrop != null ? ${lastPotholeCrop != null}")
+                                Log.d(
+                                    TAG,
+                                    "새 포트홀 확정: hasNewPotholeEvent=true, lastPotholeCrop != null ? ${lastPotholeCrop != null}"
+                                )
                             }
 
-                            // ✅ 1) 리스너로 전달 (UI 업데이트 + 맵 핀 이벤트)
                             potholeListener?.let { listener ->
                                 mainHandler.post {
                                     listener(tracks, hasNewPotholeEvent)
                                 }
                             }
 
-                            if (detections.isNotEmpty()) {
-                                val maxScore = detections.maxOf { it.score }
-                            }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error during pothole detection", e)
                         } finally {
+
+                            // ================= FPS / 평균 추론 로그 =================
+                            val nowPerf = SystemClock.elapsedRealtime()
+                            val elapsed = nowPerf - fpsStartTime
+
+                            if (elapsed >= PERF_LOG_INTERVAL_MS) {
+                                val fps = frameCount * 1000f / elapsed
+                                val avgInference =
+                                    if (inferenceCount > 0)
+                                        totalInferenceTimeMs.toFloat() / inferenceCount
+                                    else 0f
+
+                                Log.d(
+                                    "PERF",
+                                    "FPS=%.1f | Avg Inference=%.2f ms | Frames=%d"
+                                        .format(fps, avgInference, inferenceCount)
+                                )
+
+                                // 리셋
+                                frameCount = 0
+                                inferenceCount = 0
+                                totalInferenceTimeMs = 0L
+                                fpsStartTime = nowPerf
+                            }
+
                             image.close()
                         }
                     }
