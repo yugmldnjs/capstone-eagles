@@ -169,6 +169,11 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         return prefs.getBoolean("enable_pothole_tts", true)
     }
 
+    private fun isEventSoundEnabled(): Boolean {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        return prefs.getBoolean("event_detected_tts", true)
+    }
+
     // ✅ 모델이 포트홀을 감지했을 때 짧은 beep- 소리
     private fun playPotholeBeep() {
         // 설정에서 음성 안내가 꺼져 있으면 바로 리턴
@@ -183,9 +188,9 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
     }
 
     // ✅ 충격 감지 시 음성 안내
-    private fun speakImpactDetected() {
+    private fun speakEventDetected() {
         // 설정에서 음성 안내 꺼져 있으면 재생 안 함 (포트홀 TTS와 같은 스위치 사용)
-        if (!isPotholeSoundEnabled()) return
+        if (!isEventSoundEnabled()) return
 
         val ttsEngine = impactTts ?: return
 
@@ -200,7 +205,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                 "충격이 감지되었습니다.",
                 TextToSpeech.QUEUE_ADD,
                 params,
-                "IMPACT_DETECTED"
+                "EVENT_DETECTED"
             )
         }
     }
@@ -972,7 +977,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
             Toast.makeText(applicationContext, "충격이 감지되었습니다.", Toast.LENGTH_SHORT).show()
 
             // 🔊 충격 감지 TTS
-            speakImpactDetected()
+            speakEventDetected()
         }
         Log.d(TAG, "⚡ 충격 이벤트 마커 저장 로직 완료: $timestamp")
     }

@@ -87,6 +87,13 @@
             app:defaultValue="true"
             app:iconSpaceReserved="false"/>
 
+        <SwitchPreferenceCompat
+            app:key="event_detected_tts"
+            app:title="이벤트 음성 안내"
+            app:summary="주행 중 이벤트가 감지될 때 음성으로 안내합니다."
+            app:defaultValue="true"
+            app:iconSpaceReserved="false"/>
+
         <ListPreference
             android:key="event_video_duration"
             android:title="이벤트 영상 길이"
