@@ -308,11 +308,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                 currentLocation = location
                 currentSpeed = if(location.speed * 3.6f > 1.0f) location.speed * 3.6f else 0.0f // m/s -> km/h
 
-//                LogToFileHelper.writeLog(
-//                    "LOC, speed=${"%.1f".format(currentSpeed)} km/h, " +
-//                            "lat=${location.latitude}, lon=${location.longitude}"
-//                )
-
                 val now = System.currentTimeMillis()
                 detectGpsSuddenBrake(currentSpeed, now)
                 Log.d(TAG, "📍 위치 업데이트: ${location.latitude}, ${location.longitude}")
@@ -686,7 +681,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                                 Log.d(TAG, "✅ HybridSensorLogger 초기화 완료")
                                 Log.d(TAG, "   영상: ${currentRecordingFile!!.name}")
                                 Log.d(TAG, "   SRT: ${it.getSrtFilePath()}")
-                                Log.d(TAG, "   JSON: ${it.getJsonFilePath()}")
                             }
 
                             // 🆕 1초 타이머 시작
@@ -748,7 +742,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
             currentRecordingFile = null
         }
         sensorHandler.start()
-        LogToFileHelper.startLogging(this, "SensorLog")
     }
 
     /**
@@ -810,7 +803,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         }
 
         sensorHandler.stop()
-        LogToFileHelper.stopLogging()
 
         // 🆕 타이머 중지
         stopSrtLoggingTimer()
@@ -888,12 +880,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
             val dt = now - prevTime
             if (dt in 1..GPS_BRAKE_TIME_WINDOW_MS) {
                 val speedDrop = prevSpeed - newSpeedKmh   // 양수일 때 감속
-                // 📌 3-1) 매 샘플마다 속도 변화 로그
-//                LogToFileHelper.writeLog(
-//                    "DV, prev=${"%.1f".format(prevSpeed)} km/h, " +
-//                            "now=${"%.1f".format(newSpeedKmh)} km/h, " +
-//                            "drop=${"%.1f".format(speedDrop)} km/h, dt=${dt} ms"
-//                )
 
                 if (prevSpeed >= GPS_BRAKE_MIN_SPEED_KMH &&
                     speedDrop >= GPS_BRAKE_DROP_THRESHOLD_KMH
@@ -904,14 +890,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                                 " now=${"%.1f".format(newSpeedKmh)}," +
                                 " drop=${"%.1f".format(speedDrop)} km/h, dt=${dt}ms"
                     )
-
-                    // 📌 3-2) 급정거로 최종 판정된 순간 로그
-//                    LogToFileHelper.writeLog(
-//                        "BRAKE, *** DETECTED ***, " +
-//                                "prev=${"%.1f".format(prevSpeed)} km/h, " +
-//                                "now=${"%.1f".format(newSpeedKmh)} km/h, " +
-//                                "drop=${"%.1f".format(speedDrop)} km/h, dt=${dt} ms"
-//                    )
 
                     // 기존 센서 이벤트와 동일 경로로 저장 + 30초 쿨다운 적용
                     onEventDetected(currentLocation, newSpeedKmh, "SUDDEN_BRAKE")
@@ -1006,7 +984,6 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         cameraProvider?.unbindAll()
         sensorHandler.stop()
         fusedLocationClient.removeLocationUpdates(locationCallback)
-        LogToFileHelper.stopLogging()
 
         // ★ 분석 리소스 정리
         try {

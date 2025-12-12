@@ -99,27 +99,11 @@ class SensorHandler(context: Context, private var listener: EventListener?) : Se
                     rotationZ * rotationZ
         )
 
-        LogToFileHelper.writeLog(
-            "GYRO, " +
-                    "x=${"%.2f".format(rotationX)}°/s, " +
-                    "y=${"%.2f".format(rotationY)}°/s, " +
-                    "z=${"%.2f".format(rotationZ)}°/s, " +
-                    "total=${"%.2f".format(totalRotation)}°/s"
-        )
         // 급격한 회전 감지 (낙상 가능성)
         if (totalRotation > FALL_THRESHOLD) {
             val currentTime = System.currentTimeMillis()
             if (currentTime - lastImpactTime >= COOLDOWN_MS) {
                 lastImpactTime = currentTime
-                // ✅ 낙상 의심 값 별도 로그
-                LogToFileHelper.writeLog(
-                    "FALL_CANDIDATE, " +
-                            "total=${"%.2f".format(totalRotation)}°/s, " +
-                            "x=${"%.2f".format(rotationX)}, " +
-                            "y=${"%.2f".format(rotationY)}, " +
-                            "z=${"%.2f".format(rotationZ)}"
-                )
-                //listener?.onEventDetected(linearAccel.clone(), floatArrayOf(rotationX, rotationY, rotationZ), "FALL")
                 listener?.onFallCandidate(totalRotation)
                 Log.d(TAG, "🤕 낙차 의심! 회전: ${String.format("%.2f", totalRotation)}°/s")
             }
@@ -143,7 +127,6 @@ class SensorHandler(context: Context, private var listener: EventListener?) : Se
      * ✅ 이벤트 리스너 인터페이스
      */
     interface EventListener {
-        // fun onEventDetected(linearAccel: FloatArray, rotation: FloatArray, eventType: String)
         fun onFallCandidate(rotation: Float)
     }
 }
