@@ -1,5 +1,6 @@
 package com.example.capstone.ml
 
+import android.R.attr.bitmap
 import android.content.Context
 import android.util.Log
 import androidx.camera.core.ImageProxy
@@ -173,80 +174,90 @@ class PotholeDetector(
      * - 기존 JPEG 압축/디코딩 과정을 없애서 CPU 부하를 크게 줄인다.
      */
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
-        val width = image.width
-        val height = image.height
-
-        // 1) planes → NV21 바이트 배열 구성 (기존 코드와 동일한 순서)
-        val yBuffer = image.planes[0].buffer
-        val uBuffer = image.planes[1].buffer
-        val vBuffer = image.planes[2].buffer
-
-// ★ 동일 ImageProxy 에 대해 여러 번 호출될 수 있으니 매번 되감기
-        yBuffer.rewind()
-        uBuffer.rewind()
-        vBuffer.rewind()
-
-        val ySize = yBuffer.remaining()
-        val uSize = uBuffer.remaining()
-        val vSize = vBuffer.remaining()
-
-        val nv21 = ByteArray(ySize + uSize + vSize)
-
-        // NV21: Y + VU interleaved
-        yBuffer.get(nv21, 0,      ySize)
-        vBuffer.get(nv21, ySize,  vSize)
-        uBuffer.get(nv21, ySize + vSize, uSize)
-
-        // 2) NV21 → ARGB_8888 Bitmap
-        val bitmap = rgbBitmap?.takeIf { it.width == width && it.height == height }
-            ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+//        val width = image.width
+//        val height = image.height
+//
+//        // 1) planes → NV21 바이트 배열 구성 (기존 코드와 동일한 순서)
+//        val yBuffer = image.planes[0].buffer
+//        val uBuffer = image.planes[1].buffer
+//        val vBuffer = image.planes[2].buffer
+//
+//// ★ 동일 ImageProxy 에 대해 여러 번 호출될 수 있으니 매번 되감기
+//        yBuffer.rewind()
+//        uBuffer.rewind()
+//        vBuffer.rewind()
+//
+//        val ySize = yBuffer.remaining()
+//        val uSize = uBuffer.remaining()
+//        val vSize = vBuffer.remaining()
+//
+//        val nv21 = ByteArray(ySize + uSize + vSize)
+//
+//        // NV21: Y + VU interleaved
+//        yBuffer.get(nv21, 0,      ySize)
+//        vBuffer.get(nv21, ySize,  vSize)
+//        uBuffer.get(nv21, ySize + vSize, uSize)
+//
+//        // 2) NV21 → ARGB_8888 Bitmap
+//        val bitmap = rgbBitmap?.takeIf { it.width == width && it.height == height }
+//            ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+//                rgbBitmap = it
+//            }
+//
+//        val frameSize = width * height
+//        val argb = IntArray(frameSize)
+//
+//        var yp = 0
+//        for (j in 0 until height) {
+//            var uvIndex = frameSize + (j shr 1) * width
+//            var u = 0
+//            var v = 0
+//
+//            for (i in 0 until width) {
+//                val y = 0xFF and nv21[yp].toInt()
+//
+//                // 2픽셀마다 VU 갱신
+//                if ((i and 1) == 0) {
+//                    v = 0xFF and nv21[uvIndex].toInt()
+//                    u = 0xFF and nv21[uvIndex + 1].toInt()
+//                    uvIndex += 2
+//                }
+//
+//                val yClamped = (y - 16).coerceAtLeast(0)
+//                val y1192 = 1192 * yClamped
+//                val uShifted = u - 128
+//                val vShifted = v - 128
+//
+//                var r = y1192 + 1634 * vShifted
+//                var g = y1192 - 833 * vShifted - 400 * uShifted
+//                var b = y1192 + 2066 * uShifted
+//
+//                // 0 ~ 262143 범위로 클램프
+//                if (r < 0) r = 0 else if (r > 262143) r = 262143
+//                if (g < 0) g = 0 else if (g > 262143) g = 262143
+//                if (b < 0) b = 0 else if (b > 262143) b = 262143
+//
+//                argb[yp] =
+//                    (0xFF shl 24) or
+//                            ((r shl 6) and 0x00FF0000) or
+//                            ((g shr 2) and 0x0000FF00) or
+//                            ((b shr 10) and 0x000000FF)
+//
+//                yp++
+//            }
+//        }
+//
+//        bitmap.setPixels(argb, 0, width, 0, 0, width, height)
+        val bitmap = rgbBitmap?.takeIf { it.width == image.width && it.height == image.height }
+            ?: Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888).also {
                 rgbBitmap = it
             }
 
-        val frameSize = width * height
-        val argb = IntArray(frameSize)
+        // 2. 버퍼에서 픽셀 데이터 복사 (매우 빠름)
+        // ImageAnalysis에서 OUTPUT_IMAGE_FORMAT_RGBA_8888로 설정했으므로 planes[0]에 전체 데이터가 있습니다.
+        image.planes[0].buffer.rewind() // 버퍼 위치 초기화
+        bitmap.copyPixelsFromBuffer(image.planes[0].buffer)
 
-        var yp = 0
-        for (j in 0 until height) {
-            var uvIndex = frameSize + (j shr 1) * width
-            var u = 0
-            var v = 0
-
-            for (i in 0 until width) {
-                val y = 0xFF and nv21[yp].toInt()
-
-                // 2픽셀마다 VU 갱신
-                if ((i and 1) == 0) {
-                    v = 0xFF and nv21[uvIndex].toInt()
-                    u = 0xFF and nv21[uvIndex + 1].toInt()
-                    uvIndex += 2
-                }
-
-                val yClamped = (y - 16).coerceAtLeast(0)
-                val y1192 = 1192 * yClamped
-                val uShifted = u - 128
-                val vShifted = v - 128
-
-                var r = y1192 + 1634 * vShifted
-                var g = y1192 - 833 * vShifted - 400 * uShifted
-                var b = y1192 + 2066 * uShifted
-
-                // 0 ~ 262143 범위로 클램프
-                if (r < 0) r = 0 else if (r > 262143) r = 262143
-                if (g < 0) g = 0 else if (g > 262143) g = 262143
-                if (b < 0) b = 0 else if (b > 262143) b = 262143
-
-                argb[yp] =
-                    (0xFF shl 24) or
-                            ((r shl 6) and 0x00FF0000) or
-                            ((g shr 2) and 0x0000FF00) or
-                            ((b shr 10) and 0x000000FF)
-
-                yp++
-            }
-        }
-
-        bitmap.setPixels(argb, 0, width, 0, 0, width, height)
         return bitmap
     }
 
