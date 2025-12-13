@@ -100,8 +100,8 @@ object CongestionCalculator {
 
             // 혼잡도 레벨 결정 (기존 로직 유지: 10~24 보통, 25이상 혼잡)
             val level = when {
-                userCount >= 25 -> CongestionLevel.HIGH
-                userCount >= 10 -> CongestionLevel.MEDIUM
+                userCount >= 3 -> CongestionLevel.HIGH
+                userCount >= 2 -> CongestionLevel.MEDIUM
                 else -> CongestionLevel.LOW
             }
 

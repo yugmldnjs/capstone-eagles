@@ -75,7 +75,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         // ★ TFLite 추론 간 최소 간격 (ms) – 필요시 조절
         private const val MIN_INFERENCE_INTERVAL_MS = 0L
 
-        private const val EVENT_SCORE_THRESHOLD = 0.8f
+        private const val EVENT_SCORE_THRESHOLD = 0.7f
         private const val EVENT_NEAR_Y = 0.3f
         // GPS 기반 급정거 감지 파라미터 (속도 단위: km/h)
         private const val GPS_BRAKE_MIN_SPEED_KMH = 5.0f          // 이 속도 이상에서만 급정거 판단
