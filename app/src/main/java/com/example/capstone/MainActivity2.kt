@@ -151,6 +151,7 @@ class MainActivity2 : AppCompatActivity() {
 
             if (allGranted) {
                 startAndBindRecordingService()
+                startLocationUpdates()
             } else {
                 Log.e("MainActivity2", "권한 거부")
                 Toast.makeText(this, "앱 실행에 필요한 모든 권한이 허용되어야 합니다.", Toast.LENGTH_LONG).show()
@@ -187,7 +188,7 @@ class MainActivity2 : AppCompatActivity() {
             500
         ).setMinUpdateDistanceMeters(0f).build()
 
-        checkLocationPermission()
+
 
         hideNavigationBar() // 네비게이션 바 숨기는 함수
 
@@ -291,37 +292,6 @@ class MainActivity2 : AppCompatActivity() {
         }
     }
 
-    private fun checkLocationPermission() {
-        if (ContextCompat.checkSelfPermission(
-                this, Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                locationPermissionCode
-            )
-        } else {
-            startLocationUpdates()
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-
-        if (requestCode == locationPermissionCode &&
-            grantResults.isNotEmpty() &&
-            grantResults[0] == PackageManager.PERMISSION_GRANTED
-        ) {
-            startLocationUpdates()
-        } else {
-            Toast.makeText(this, "속도 측정을 위해 위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
-        }
-    }
 
     // -----------------------------
     // GPS 속도 업데이트 Callback
@@ -362,8 +332,12 @@ class MainActivity2 : AppCompatActivity() {
 
         if (ActivityCompat.checkSelfPermission(
                 this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_COARSE_LOCATION
             ) != PackageManager.PERMISSION_GRANTED
-        ) return
+        ) {
+            return
+        }
 
         fusedLocationClient.requestLocationUpdates(
             locationRequest,
