@@ -96,11 +96,11 @@ class CongestionOverlayManager(
             )
 
             // ✅ 5명 미만은 전부 숨김
-//            val displayClusters = clusters.filter { it.userCount >= 5 }
-//            Log.d(TAG, "표시 대상 클러스터: ${displayClusters.size}개 (5명 이상만 표시)")
+            val displayClusters = clusters.filter { it.userCount >= 5 }
+            Log.d(TAG, "표시 대상 클러스터: ${displayClusters.size}개 (5명 이상만 표시)")
 
-            val displayClusters = clusters   // ✅ 클러스터 전부 표시
-            Log.d(TAG, "표시 대상 클러스터: ${displayClusters.size}개 (테스트용 1명 이상 표시)")
+//            val displayClusters = clusters   // ✅ 클러스터 전부 표시
+//            Log.d(TAG, "표시 대상 클러스터: ${displayClusters.size}개 (테스트용 1명 이상 표시)")
 
             // Circle / Marker 풀 확장 (재사용)
             while (clusterCircles.size < displayClusters.size) {

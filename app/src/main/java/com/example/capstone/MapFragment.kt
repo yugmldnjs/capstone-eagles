@@ -61,7 +61,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
         // ✅ 포트홀 경고 조건
         private const val POTHOLE_ALERT_DISTANCE_METERS = 30.0   // 거리 10m
         private const val POTHOLE_ALERT_ANGLE_DEG = 60.0         // 진행 방향 ±60도 안쪽만
-        private const val POTHOLE_ALERT_INTERVAL_MS = 30000L    // 최소 10초 간격
+        private const val POTHOLE_ALERT_INTERVAL_MS = 10000L    // 최소 10초 간격
     }
 
     private val httpClient by lazy { OkHttpClient() }
