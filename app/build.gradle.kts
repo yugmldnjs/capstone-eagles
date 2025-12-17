@@ -38,26 +38,6 @@ android {
         buildConfigField("String", "NAVER_MAP_CLIENT_SECRET", "\"$naverClientSecret\"")
     }
 
-    buildTypes {
-        getByName("debug") {
-            buildConfigField("boolean", "USE_DUMMY_BIKE_DATA", "true")
-
-            // 디버그 빌드에서는 더미 포트홀 ON
-            buildConfigField("boolean", "SHOW_DUMMY_POTHOLES", "true")
-        }
-        getByName("release") {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-            buildConfigField("boolean", "USE_DUMMY_BIKE_DATA", "false")
-
-            // 릴리즈 빌드에서는 더미 포트홀 OFF
-            buildConfigField("boolean", "SHOW_DUMMY_POTHOLES", "false")
-        }
-    }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

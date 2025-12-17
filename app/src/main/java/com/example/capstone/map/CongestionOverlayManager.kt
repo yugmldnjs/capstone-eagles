@@ -4,7 +4,6 @@ import android.util.Log
 import com.example.capstone.BuildConfig
 import com.example.capstone.data.LocationData
 import com.example.capstone.data.LocationRepository
-import com.example.capstone.dummy.BikeDummyData
 import com.example.capstone.utils.CongestionCalculator
 import com.example.capstone.utils.CongestionCluster
 import com.example.capstone.utils.CongestionLevel
@@ -49,12 +48,6 @@ class CongestionOverlayManager(
 
         locationListener = repo.listenRecentLocations(minutesAgo = 2) { realLocations ->
             val finalLocations = realLocations
-//                if (BuildConfig.USE_DUMMY_BIKE_DATA) {
-//                    realLocations + BikeDummyData.generate()
-//                } else {
-//                    realLocations
-//                }
-
             lastLocations = finalLocations
             updateCongestionClusters(finalLocations)
         }
