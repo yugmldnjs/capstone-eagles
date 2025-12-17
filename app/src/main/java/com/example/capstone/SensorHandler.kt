@@ -97,7 +97,7 @@ class SensorHandler(context: Context, private var listener: EventListener?) : Se
         )
 
         // 급격한 회전 감지 (낙상 가능성)
-        if (totalRotation > FALL_THRESHOLD) {
+        if (totalRotation >= FALL_THRESHOLD) {
             val currentTime = System.currentTimeMillis()
             if (currentTime - lastImpactTime >= COOLDOWN_MS) {
                 lastImpactTime = currentTime
