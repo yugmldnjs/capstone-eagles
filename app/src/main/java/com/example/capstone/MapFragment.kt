@@ -583,10 +583,10 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                 tvLocation.text = "포트홀 위치: 주소를 불러오지 못했습니다."
                 tvOffice.text = "관할 지자체: 확인 불가 (근처 지자체로 문의해주세요)"
 
-                // 주소가 없어도 최소한 120으로는 연결
+                // 주소가 없어도 최소한 110으로는 연결
                 btnCall.setOnClickListener {
                     val intent = Intent(Intent.ACTION_DIAL).apply {
-                        data = Uri.parse("tel:120")
+                        data = Uri.parse("tel:110")
                     }
                     startActivity(intent)
                     dialog.dismiss()
@@ -684,7 +684,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                 LocalGovInfo("광주광역시 광산구청", "062-960-8114")  // 대표전화
 
             else -> {
-                // 그 외 지역은 일단 "OOO청 / 120" 으로 처리 (나중에 필요 지역만 추가)
+                // 그 외 지역은 일단 "OOO청 / 110" 으로 처리 (나중에 필요 지역만 추가)
                 val regionName = when {
                     a1.isNotBlank() && a2.isNotBlank() -> "$a1 $a2 청"
                     a2.isNotBlank() -> "$a2 청"
@@ -692,7 +692,7 @@ class MapFragment : Fragment(R.layout.fragment_map), OnMapReadyCallback {
                     else -> "관할 지자체"
                 }
                 // TODO: 자주 사용하는 지역은 실제 대표번호로 차근차근 추가
-                LocalGovInfo(regionName, "120")
+                LocalGovInfo(regionName, "110")
             }
         }
     }
