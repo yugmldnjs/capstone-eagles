@@ -36,7 +36,7 @@ class EventExtractionWorker(
             // pending 상태의 이벤트들 조회
             val pendingEvents = eventDao.getPendingExtractions()
 
-            Log.d(TAG, "📋 추출 대기 중인 이벤트: ${pendingEvents.size}개")
+            Log.d(TAG, " 추출 대기 중인 이벤트: ${pendingEvents.size}개")
 
             pendingEvents.forEach { event ->
                 extractEventVideoAndSrt(event, eventDao)
@@ -44,7 +44,7 @@ class EventExtractionWorker(
 
             Result.success()
         } catch (e: Exception) {
-            Log.e(TAG, "❌ 이벤트 추출 실패", e)
+            Log.e(TAG, " 이벤트 추출 실패", e)
             Result.retry()
         }
     }
@@ -55,13 +55,13 @@ class EventExtractionWorker(
     private suspend fun extractEventVideoAndSrt(event: EventEntity, eventDao: EventDao) {
         // videoFilePath 확인
         val videoPath = event.videoFilePath ?: run {
-            Log.e(TAG, "❌ Event ${event.id}: videoFilePath가 null")
+            Log.e(TAG, " Event ${event.id}: videoFilePath가 null")
             return
         }
 
         val videoFile = File(videoPath)
         if (!videoFile.exists()) {
-            Log.e(TAG, "❌ Event ${event.id}: 영상 파일 없음 - $videoPath")
+            Log.e(TAG, " Event ${event.id}: 영상 파일 없음 - $videoPath")
             eventDao.update(event.copy(status = "failed"))
             return
         }
@@ -69,20 +69,20 @@ class EventExtractionWorker(
         // SRT 파일 경로 확인
         val srtFile = File(videoFile.parent, videoFile.nameWithoutExtension + ".srt")
         if (!srtFile.exists()) {
-            Log.w(TAG, "⚠️ Event ${event.id}: SRT 파일 없음 - ${srtFile.path}")
+            Log.w(TAG, "⚠ Event ${event.id}: SRT 파일 없음 - ${srtFile.path}")
             // SRT 없어도 영상은 추출
         }
 
         // 상태 업데이트: extracting
         eventDao.update(event.copy(status = "extracting"))
-        Log.d(TAG, "🎬 Event ${event.id}: 추출 시작")
+        Log.d(TAG, " Event ${event.id}: 추출 시작")
         Log.d(TAG, "   영상: ${videoFile.name}")
         if (srtFile.exists()) {
             Log.d(TAG, "   SRT: ${srtFile.name}")
         }
 
         try {
-            // 1️⃣ 추출 구간 계산
+            //  추출 구간 계산
             val videoStartTime = event.recordingStartTimestamp
 
             val eventTime = event.timestamp
@@ -97,7 +97,7 @@ class EventExtractionWorker(
             Log.d(TAG, "   이벤트 시각: ${eventRelativeTime}ms")
             Log.d(TAG, "   추출 구간: ${startTime}ms ~ ${startTime + duration}ms")
 
-            // 2️⃣ 출력 파일 경로
+            // ️출력 파일 경로
             val outputDir = File(applicationContext.getExternalFilesDir(null), "Events")
             if (!outputDir.exists()) outputDir.mkdirs()
 
@@ -106,17 +106,17 @@ class EventExtractionWorker(
             val outputVideoFile = File(outputDir, "${fileName}.mp4")
             val outputSrtFile = File(outputDir, "${fileName}.srt")
 
-            // 3️⃣ FFmpeg로 영상 추출
+            //  FFmpeg로 영상 추출
             val success = extractVideo(videoFile, outputVideoFile, startTime, duration, event.latitude, event.longitude)
 
             if (!success) {
                 eventDao.update(event.copy(status = "failed"))
-                Log.e(TAG, "❌ Event ${event.id}: FFmpeg 실패")
+                Log.e(TAG, " Event ${event.id}: FFmpeg 실패")
                 return
             }
 
 
-            // 4️⃣ SRT 추출 (원본 SRT가 있는 경우)
+            // SRT 추출 (원본 SRT가 있는 경우)
             if (srtFile.exists()) {
                 val srtSuccess = SrtExtractor.extractSrtSegment(
                     sourceSrtFile = srtFile,
@@ -126,22 +126,22 @@ class EventExtractionWorker(
                 )
 
                 if (srtSuccess) {
-                    Log.d(TAG, "✅ Event ${event.id}: SRT 추출 완료 - ${outputSrtFile.name}")
+                    Log.d(TAG, " Event ${event.id}: SRT 추출 완료 - ${outputSrtFile.name}")
 
                     // 디버그: SRT 내용 출력
                     SrtExtractor.printSrtInfo(outputSrtFile)
                 } else {
-                    Log.w(TAG, "⚠️ Event ${event.id}: SRT 추출 실패")
+                    Log.w(TAG, "⚠ Event ${event.id}: SRT 추출 실패")
                 }
             }
 
-            // 5️⃣ DB 업데이트
+            //  DB 업데이트
             eventDao.update(event.copy(
                 extractedVideoPath = outputVideoFile.absolutePath,
                 status = "completed"
             ))
 
-            Log.d(TAG, "✅ Event ${event.id}: 추출 완료")
+            Log.d(TAG, " Event ${event.id}: 추출 완료")
             Log.d(TAG, "   영상: ${outputVideoFile.name}")
             if (outputSrtFile.exists()) {
                 Log.d(TAG, "   SRT: ${outputSrtFile.name} (${outputSrtFile.length()} bytes)")
@@ -149,7 +149,7 @@ class EventExtractionWorker(
 
         } catch (e: Exception) {
             eventDao.update(event.copy(status = "failed"))
-            Log.e(TAG, "❌ Event ${event.id}: 추출 중 오류", e)
+            Log.e(TAG, " Event ${event.id}: 추출 중 오류", e)
         }
     }
 
@@ -187,21 +187,21 @@ class EventExtractionWorker(
                     gpsMetadata +
                     outputFile.absolutePath
 
-            Log.d(TAG, "🎬 FFmpeg 명령: $command")
+            Log.d(TAG, " FFmpeg 명령: $command")
 
             val session = FFmpegKit.execute(command)
 
             return if (ReturnCode.isSuccess(session.returnCode)) {
-                Log.d(TAG, "✅ FFmpeg 성공: ${outputFile.name}")
+                Log.d(TAG, " FFmpeg 성공: ${outputFile.name}")
                 Log.d(TAG, "   로그: ${session.output}")
                 true
             } else {
-                Log.e(TAG, "❌ FFmpeg 실패: ${session.returnCode}")
+                Log.e(TAG, " FFmpeg 실패: ${session.returnCode}")
                 Log.e(TAG, "   로그: ${session.output}")
                 false
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ FFmpeg 실행 오류", e)
+            Log.e(TAG, " FFmpeg 실행 오류", e)
             return false
         }
     }
@@ -210,20 +210,6 @@ class EventExtractionWorker(
         private const val TAG = "EventExtractionWorker"
         private const val FILENAME_FORMAT = "yyyyMMdd_HHmmss"
 
-        /**
-         * 추출 작업 예약
-         */
-        fun scheduleExtraction(context: Context) {
-            val workRequest = OneTimeWorkRequestBuilder<EventExtractionWorker>()
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiresBatteryNotLow(true)
-                        .build()
-                )
-                .build()
 
-            WorkManager.getInstance(context).enqueue(workRequest)
-            Log.d(TAG, "📋 이벤트 추출 작업 예약")
-        }
     }
 }
