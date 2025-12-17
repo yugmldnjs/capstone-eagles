@@ -88,10 +88,10 @@ class SrtSensorLogger(private val videoStartTime: Long) {
     fun save(file: File) {
         try {
             file.writeText(srtBuilder.toString())
-            Log.d(TAG, "✅ SRT 파일 저장 완료: ${file.path}")
+            Log.d(TAG, " SRT 파일 저장 완료: ${file.path}")
             Log.d(TAG, "   총 ${sequenceNumber - 1}개 엔트리")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ SRT 파일 저장 실패", e)
+            Log.e(TAG, " SRT 파일 저장 실패", e)
         }
     }
 
@@ -102,7 +102,7 @@ class SrtSensorLogger(private val videoStartTime: Long) {
         srtBuilder.clear()
         sequenceNumber = 1
         lastEntryEndTime = 0L
-        Log.d(TAG, "✅ SrtSensorLogger 초기화")
+        Log.d(TAG, " SrtSensorLogger 초기화")
     }
 
     companion object {

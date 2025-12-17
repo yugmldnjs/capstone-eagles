@@ -79,11 +79,11 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         private const val EVENT_NEAR_Y = 0.3f
         // GPS 기반 급정거 감지 파라미터 (속도 단위: km/h)
         private const val GPS_BRAKE_MIN_SPEED_KMH = 5.0f          // 이 속도 이상에서만 급정거 판단
-        private const val GPS_BRAKE_DROP_THRESHOLD_KMH = 8.0f     // Δv 가 이 값 이상이면 급정거
+        private const val GPS_BRAKE_DROP_THRESHOLD_KMH = 9.0f     // Δv 가 이 값 이상이면 급정거
         private const val GPS_BRAKE_TIME_WINDOW_MS = 1500L        // 이 시간 안에 일어난 속도 감소만 인정
         private const val FALL_THRESHOLD_SPEED_KMH = 5.0f
         private const val FALL_THRESHOLD_DEG = 190.0f
-        private const val EVENT_COOL_DOWN_MS = 15000L
+        private const val EVENT_COOL_DOWN_MS = 10000L
 
         private const val PERF_LOG_INTERVAL_MS = 1000L
 
@@ -737,7 +737,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
                                 Log.d(TAG, "   SRT: ${it.getSrtFilePath()}")
                             }
 
-                            // 🆕 1초 타이머 시작
+                            //  1초 타이머 시작
                             startSrtLoggingTimer()
 
                             try {
@@ -799,7 +799,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
     }
 
     /**
-     * 🆕 SRT 로깅 타이머 시작 (1초 간격 강제)
+     *  SRT 로깅 타이머 시작 (1초 간격 강제)
      */
     private fun startSrtLoggingTimer() {
 
@@ -837,7 +837,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
     }
 
     /**
-     * 🆕 SRT 로깅 타이머 중지
+     *  SRT 로깅 타이머 중지
      */
     private fun stopSrtLoggingTimer() {
         srtLoggingRunnable?.let {
@@ -858,7 +858,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
 
         sensorHandler.stop()
 
-        // 🆕 타이머 중지
+        // 타이머 중지
         stopSrtLoggingTimer()
 
         // 위치 업데이트 중지
@@ -999,7 +999,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 eventDao.insert(event)
-                Log.d(TAG, "✅ DB 저장 성공! (위치 포함: ${location != null})")
+                Log.d(TAG, " DB 저장 성공! (위치 포함: ${location != null})")
             } catch (e: Exception) {
                 Log.e(TAG, "DB 저장 중 오류 발생", e)
             }

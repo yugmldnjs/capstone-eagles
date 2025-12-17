@@ -14,10 +14,10 @@ class SensorHandler(context: Context, private var listener: EventListener?) : Se
         private const val TAG = "SensorHandler"
 
 
-        // ✅ 쿨다운 시간 설정
+        //  쿨다운 시간 설정
         private const val COOLDOWN_MS = 2000L  // 2초
 
-        // ✅ 자이로 로그 최소 간격 (너무 많이 찍히는 걸 방지용)
+        //  자이로 로그 최소 간격 (너무 많이 찍히는 걸 방지용)
         private const val GYRO_LOG_INTERVAL_MS = 200L   // 0.2초마다 한 번 정도
         private const val FALL_THRESHOLD = 140.0f
     }
@@ -28,14 +28,11 @@ class SensorHandler(context: Context, private var listener: EventListener?) : Se
     private var accelerometer: Sensor? = null
     private var gyroscope: Sensor? = null
 
-    // ✅ 마지막 이벤트 감지 시간
+    //  마지막 이벤트 감지 시간
     private var lastImpactTime = 0L
 
-    // ✅ 마지막 자이로 로그 시각
+    //  마지막 자이로 로그 시각
     private var lastGyroLogTime = 0L
-
-    //timestamp and dt
-    var timestamp: Long = 0
 
 
 
