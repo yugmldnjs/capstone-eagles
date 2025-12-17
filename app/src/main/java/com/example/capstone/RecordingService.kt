@@ -959,7 +959,7 @@ class RecordingService : Service(), LifecycleOwner, SensorHandler.EventListener 
 
     override fun onFallCandidate(rotation: Float) {
         val speed = currentSpeed
-        if (rotation > FALL_THRESHOLD_DEG || speed < FALL_THRESHOLD_SPEED_KMH){
+        if (rotation >= FALL_THRESHOLD_DEG || speed <= FALL_THRESHOLD_SPEED_KMH){
             return onEventDetected(currentLocation, speed,"FALL")
         }
     }
